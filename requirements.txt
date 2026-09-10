@@ -1,0 +1,19 @@
+# J.A.R.V.I.S. — подсистема взгляда (этап 1)
+# Python 3.10+ (виртуальное окружение создавалось как: python -m venv --system-site-packages .venv)
+
+# --- Ядро обработки изображений и ML (уже есть в системном Python) ---
+# opencv-python
+# numpy
+# mediapipe
+# scikit-learn
+# scipy
+
+# --- Зависимости проекта ---
+screeninfo
+pynput
+PyQt6
+
+# --- EyeTrax (локальная библиотека из libs/) ---
+# Установка: pip install --no-deps ./libs/EyeTrax-master/EyeTrax-master
+# (остальные deps берутся из системного окружения; numpy<2 недоступен на Python 3.13,
+#  но EyeTrax 0.4.0 работает и с numpy 2.x, проверено)
