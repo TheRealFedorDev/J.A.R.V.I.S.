@@ -9,7 +9,7 @@ with open("server.conf", "r", encoding="utf-8") as file:
     config = json.load(file)
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind((config["ServerHost"], int(config["SeverPort"])))
+server.bind((config["ServerHost"], int(config["ServerPort"])))
 server.listen()
 
 clients = []

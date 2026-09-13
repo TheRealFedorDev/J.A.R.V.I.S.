@@ -4,6 +4,9 @@ import socket
 # Просто подключите к вашему коду
 # README_SAPI
 
+def connect(client):
+    client.connect((config["Server"], int(config["Port"])))
+
 def send_responce(client, messages, stream):
     payload = json.dumps({"Messages": messages, "Stream": stream})
     client.send(payload.encode("utf-8"))
@@ -35,4 +38,3 @@ with open("client.conf", "r", encoding="utf-8") as file:
     config = json.load(file)
 
 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect((config["Server"], int(config["Host"])))

@@ -1,9 +1,12 @@
 import sys
-from client import client, send_responce
+from client import client, send_responce, connect
 
 
 def main():
     messages = []
+
+    connect(client)
+
     print("=== Ollama CLI (exit/quit для выхода) ===")
 
     while True:
