@@ -31,7 +31,6 @@ def send_responce(client, messages, stream):
             except json.JSONDecodeError:
                 break
 
-
 config = {}
 
 with open("client.conf", "r", encoding="utf-8") as file:

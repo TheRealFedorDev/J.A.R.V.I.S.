@@ -1,0 +1,5 @@
+/home/sergey/J.A.R.V.I.S./frontend/build/CMakeFiles/JarvisUI.dir
+/home/sergey/J.A.R.V.I.S./frontend/build/CMakeFiles/edit_cache.dir
+/home/sergey/J.A.R.V.I.S./frontend/build/CMakeFiles/rebuild_cache.dir
+/home/sergey/J.A.R.V.I.S./frontend/build/CMakeFiles/JarvisUI_autogen_timestamp_deps.dir
+/home/sergey/J.A.R.V.I.S./frontend/build/CMakeFiles/JarvisUI_autogen.dir

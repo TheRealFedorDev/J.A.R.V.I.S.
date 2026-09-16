@@ -1,0 +1,20 @@
+[
+{
+  "directory": "/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_WIDGETS_LIB -I/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/frontendMM_autogen/include -isystem /usr/include/qt6/QtWidgets -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtGui -isystem /usr/include/qt6/QtNetwork -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG -g -std=gnu++17 -mno-direct-extern-access -o CMakeFiles/frontendMM.dir/frontendMM_autogen/mocs_compilation.cpp.o -c /home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/frontendMM_autogen/mocs_compilation.cpp",
+  "file": "/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/frontendMM_autogen/mocs_compilation.cpp",
+  "output": "/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/CMakeFiles/frontendMM.dir/frontendMM_autogen/mocs_compilation.cpp.o"
+},
+{
+  "directory": "/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_WIDGETS_LIB -I/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/frontendMM_autogen/include -isystem /usr/include/qt6/QtWidgets -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtGui -isystem /usr/include/qt6/QtNetwork -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG -g -std=gnu++17 -mno-direct-extern-access -o CMakeFiles/frontendMM.dir/main.cpp.o -c /home/sergey/J.A.R.V.I.S./frontend/frontendMM/main.cpp",
+  "file": "/home/sergey/J.A.R.V.I.S./frontend/frontendMM/main.cpp",
+  "output": "/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/CMakeFiles/frontendMM.dir/main.cpp.o"
+},
+{
+  "directory": "/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_WIDGETS_LIB -I/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/frontendMM_autogen/include -isystem /usr/include/qt6/QtWidgets -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtGui -isystem /usr/include/qt6/QtNetwork -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG -g -std=gnu++17 -mno-direct-extern-access -o CMakeFiles/frontendMM.dir/server.cpp.o -c /home/sergey/J.A.R.V.I.S./frontend/frontendMM/server.cpp",
+  "file": "/home/sergey/J.A.R.V.I.S./frontend/frontendMM/server.cpp",
+  "output": "/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/CMakeFiles/frontendMM.dir/server.cpp.o"
+}
+]

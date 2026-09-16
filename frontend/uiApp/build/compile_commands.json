@@ -1,0 +1,14 @@
+[
+{
+  "directory": "/home/sergey/J.A.R.V.I.S./frontend/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_WIDGETS_LIB -I/home/sergey/J.A.R.V.I.S./frontend/build/JarvisUI_autogen/include -isystem /usr/include/qt6/QtWidgets -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtGui -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG -g -std=gnu++17 -mno-direct-extern-access -o CMakeFiles/JarvisUI.dir/JarvisUI_autogen/mocs_compilation.cpp.o -c /home/sergey/J.A.R.V.I.S./frontend/build/JarvisUI_autogen/mocs_compilation.cpp",
+  "file": "/home/sergey/J.A.R.V.I.S./frontend/build/JarvisUI_autogen/mocs_compilation.cpp",
+  "output": "/home/sergey/J.A.R.V.I.S./frontend/build/CMakeFiles/JarvisUI.dir/JarvisUI_autogen/mocs_compilation.cpp.o"
+},
+{
+  "directory": "/home/sergey/J.A.R.V.I.S./frontend/build",
+  "command": "/usr/bin/c++ -DQT_CORE_LIB -DQT_GUI_LIB -DQT_WIDGETS_LIB -I/home/sergey/J.A.R.V.I.S./frontend/build/JarvisUI_autogen/include -isystem /usr/include/qt6/QtWidgets -isystem /usr/include/qt6 -isystem /usr/include/qt6/QtCore -isystem /usr/lib/qt6/mkspecs/linux-g++ -isystem /usr/include/qt6/QtGui -DQT_QML_DEBUG -DQT_DECLARATIVE_DEBUG -g -std=gnu++17 -mno-direct-extern-access -o CMakeFiles/JarvisUI.dir/uiApp/src/main.cpp.o -c /home/sergey/J.A.R.V.I.S./frontend/uiApp/src/main.cpp",
+  "file": "/home/sergey/J.A.R.V.I.S./frontend/uiApp/src/main.cpp",
+  "output": "/home/sergey/J.A.R.V.I.S./frontend/build/CMakeFiles/JarvisUI.dir/uiApp/src/main.cpp.o"
+}
+]

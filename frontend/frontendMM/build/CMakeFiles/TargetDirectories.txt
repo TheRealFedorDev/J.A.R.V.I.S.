@@ -1,0 +1,5 @@
+/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/CMakeFiles/frontendMM.dir
+/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/CMakeFiles/edit_cache.dir
+/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/CMakeFiles/rebuild_cache.dir
+/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/CMakeFiles/frontendMM_autogen_timestamp_deps.dir
+/home/sergey/J.A.R.V.I.S./frontend/frontendMM/build/CMakeFiles/frontendMM_autogen.dir

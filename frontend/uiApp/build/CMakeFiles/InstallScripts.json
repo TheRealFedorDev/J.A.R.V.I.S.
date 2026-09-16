@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/sergey/J.A.R.V.I.S./frontend/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
