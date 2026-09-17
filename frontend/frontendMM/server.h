@@ -9,10 +9,14 @@
 #include <QVector>
 #include <QFile>
 
+/*
+    Основная идея в том чтобы просто пересылать пакеты по заданным правилам
+*/
+
 struct ClientInfo {
-    QString name;
-    QString dType;
-    int protocolVersion;
+    QString name;   // Неофициальное имя
+    QString dType;   // Официальный тип
+    int protocolVersion;   // Версия протокола, пока ни на что не влияет
 };
 
 class Server : public QTcpServer {
@@ -20,26 +24,29 @@ class Server : public QTcpServer {
 
 public:
     Server() {
-        if (!this->listen(QHostAddress::Any, 6767)) return;
+        if (!this->listen(QHostAddress::Any, 6767)) return; // Пытаемся запустить
+
         loadConfig();
     }
 
 protected:
-    void incomingConnection(qintptr socketDescriptor) override {
-        QTcpSocket *socket = new QTcpSocket(this);
+    void incomingConnection(qintptr socketDescriptor) override {   // Переписываем базовый метод подключения
+        QTcpSocket *socket = new QTcpSocket(this);   
         socket->setSocketDescriptor(socketDescriptor);
 
         connect(socket, &QTcpSocket::readyRead, this, [this, socket]() {
             handleResponse(socket);
         });
+
         connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
             disconnectClient(socket);
         });
     }
 
-    void handleResponse(QTcpSocket* socket) {
+    void handleResponse(QTcpSocket* socket) {   // Обрабатываем запросики
         QByteArray data = socket->readAll();
         QJsonDocument doc = QJsonDocument::fromJson(data);
+
         if (doc.isNull()) return;
 
         QJsonObject obj = doc.object();
@@ -51,7 +58,8 @@ protected:
             } else {
                 addClient(obj, socket);
             }
-        } 
+        }
+
         else if (type == "P") {
             routeMessage(socket, obj, data);
         }
@@ -64,9 +72,12 @@ private:
 
     void loadConfig() {
         QFile file("supported.json");
+        
         if (!file.open(QIODevice::ReadOnly)) return;
+        
         QByteArray fileData = file.readAll();
         file.close();
+
         QJsonDocument doc = QJsonDocument::fromJson(fileData);
         if (!doc.isNull() && doc.isObject()) {
             config = doc.object();
@@ -101,24 +112,27 @@ private:
             {"dType", dType}, 
             {"protocolVersion", obj["protocolVersion"]}
         };
-        socket->write(QJsonDocument(reply).toJson(QJsonDocument::Compact) + "\n");
+
+        socket->write(QJsonDocument(reply).toJson(QJsonDocument::Compact) + "\n");    // Подтверждение клиента
     }
 
     void routeMessage(QTcpSocket* senderSocket, const QJsonObject& obj, const QByteArray& rawData) {
         if (!clients.contains(senderSocket)) return;
 
         QString senderType = clients[senderSocket].dType;
-        QString eventName = obj["dType"].toString(); 
+        
+        QString eventName = obj["dType"].toString();
+
         QString topic = senderType + "." + eventName;
 
-        for (QTcpSocket* subSocket : topicSubscribers.value(topic)) {
+        for (QTcpSocket* subSocket : topicSubscribers.value(topic)) {   // Рассылка всем подписанным
             if (subSocket->isOpen()) {
                 subSocket->write(rawData + "\n");
             }
         }
     }
 
-    void disconnectClient(QTcpSocket* socket) {
+    void disconnectClient(QTcpSocket* socket) {   // Удаляем все связи с клиентом
         if (!clients.contains(socket)) return;
         
         for (auto& subs : topicSubscribers) {
@@ -129,11 +143,12 @@ private:
         socket->deleteLater();
     }
 
-    void sendError(QTcpSocket* socket, const QString& msg) {
+    void sendError(QTcpSocket* socket, const QString& msg) {   // Отправка ошибок
         QJsonObject err = { 
             {"Type", "E"}, 
             {"error", msg} 
         };
+
         socket->write(QJsonDocument(err).toJson(QJsonDocument::Compact) + "\n");
     }
 };
