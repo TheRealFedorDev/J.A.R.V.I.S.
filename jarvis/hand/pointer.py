@@ -1,23 +1,20 @@
-"""Чистая логика «воздушной мыши»: палец → курсор, щипок → кнопка.
+"""Чистая логика «воздушной мыши»: палец → курсор, жесты → кнопки.
 
-Без side-эффектов: принимает нормированные координаты пальца и долю сжатия
-щипка, возвращает приращение курсора в px и события кнопки. Всё, что связано
-с камерой/mediapipe/мышью, остаётся в вызывающем коде.
+Без side-эффектов: принимает нормированные координаты пальца, возвращает
+приращение курсора в px и события кнопки.
 
-Механика:
-- относительный режим: курсор движется ПРИРАЩЕНИЯМИ от положения, где палец
-  показался в кадре (рука опирается на локоть, двигаются только пальцы);
-- зеркалирование X (как у трекпада/вебки-превью), если mirror_x=True;
-- первые startup_frames кадров после появления руки — «зажим», курсор не
-  движется, но база запоминается (не телепорт);
-- щипок с гистерезисом: закрыли ниже pinch_close → кнопка нажата,
-  раскрыли выше pinch_open → отпущена. Быстрое нажатие = клик (само по себе),
-  удержание с движением = drag.
+Антидрожание:
+- One Euro Filter по координате палеца (покой → сильно гасит шум MediaPipe,
+  быстрое движение → почти без задержки);
+- отсечение одиночных «скачков» лендмарка (outlier reject);
+- EMA по приращениям + мёртвая зона — финальный слой стабильности.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from jarvis.input.smoothing import OneEuroSmoother
 
 
 @dataclass(frozen=True)
@@ -35,7 +32,7 @@ class HandCommand:
 
 
 class HandPointerState:
-    """Гистерезис щипка + относительный маппинг палец→курсор (стабилен)."""
+    """Сглаженный относительный маппинг палец→курсор + гистерезис кнопок."""
 
     def __init__(
         self,
@@ -48,20 +45,29 @@ class HandPointerState:
         ema: float = 0.40,
         dead_zone: float = 1.5,
         max_move: float = 1400.0,
+        one_euro_min_cutoff: float = 0.8,
+        one_euro_beta: float = 0.12,
+        spike_threshold: float = 0.08,   # норм. единиц: резкий скачок → пропуск
     ) -> None:
         self._sens = sensitivity
         self._mirror_x = mirror_x
         self._close = pinch_close
         self._open = pinch_open
         self._startup = startup_frames
-        self._ema = ema
+        self._ema = max(0.05, min(0.95, ema))
         self._dead_zone = dead_zone
         self._max_move = max_move
+        self._spike = spike_threshold
 
-        self._prev: tuple[float, float] | None = None  # прошлый палец (норм.)
-        self._frames = 0                                # кадров с рукой подряд
-        self._pinch = False                             # кнопка сейчас нажата
-        self._sdx = 0.0                                 # сглаженное приращение
+        # сглаживание СЫРОЙ координаты пальца (антидрожание)
+        self._pos_filter = OneEuroSmoother(
+            min_cutoff=one_euro_min_cutoff,
+            beta=one_euro_beta,
+        )
+        self._prev: tuple[float, float] | None = None  # прошлый (сглаженный) палец
+        self._frames = 0
+        self._pinch = False
+        self._sdx = 0.0
         self._sdy = 0.0
 
     def reset(self) -> None:
@@ -70,6 +76,7 @@ class HandPointerState:
         self._frames = 0
         self._pinch = False
         self._sdx = self._sdy = 0.0
+        self._pos_filter.reset()
 
     @property
     def pinch_pressed(self) -> bool:
@@ -93,27 +100,42 @@ class HandPointerState:
 
         self._frames += 1
         if self._prev is None:
-            self._prev = (nx, ny)   # первый кадр — только захват базы
+            # первый кадр: прогреваем фильтр, только захват базы
+            sx, sy = self._pos_filter.step(nx, ny)
+            self._prev = (sx, sy)
             self._frames = 1
+            return HandCommand(dx=0.0, dy=0.0)
+
+        # 1) One Euro по сырой координате — гасит дрожание в покое
+        sx, sy = self._pos_filter.step(nx, ny)
+
+        # 2) отсечение одиночного скачка лендмарка (не двигаем курсор)
+        jump = ((sx - self._prev[0]) ** 2 + (sy - self._prev[1]) ** 2) ** 0.5
+        if jump > self._spike:
+            # базу не двигаем — «замораживаем» позицию на этот кадр
+            sx, sy = self._prev
 
         dx = dy = 0.0
         if self._frames >= self._startup:
-            dx = (nx - self._prev[0]) * screen_w * self._sens
-            dy = (ny - self._prev[1]) * screen_h * self._sens
-        self._prev = (nx, ny)
+            dx = (sx - self._prev[0]) * screen_w * self._sens
+            dy = (sy - self._prev[1]) * screen_h * self._sens
+        self._prev = (sx, sy)
 
-        # лёгкое сглаживание приращений (EMA) + мёртвая зона + потолок скорости
+        # 3) EMA по приращениям + мёртвая зона + потолок скорости
         self._sdx = self._ema * dx + (1.0 - self._ema) * self._sdx
         self._sdy = self._ema * dy + (1.0 - self._ema) * self._sdy
         out_dx, out_dy = self._sdx, self._sdy
         if (out_dx ** 2 + out_dy ** 2) < self._dead_zone ** 2:
             out_dx = out_dy = 0.0
+            # в покое затухаем, чтобы EMA не «копила» хвост
+            self._sdx *= 0.85
+            self._sdy *= 0.85
         m = float((self._max_move ** 2) / (out_dx ** 2 + out_dy ** 2 + 1e-9))
         if m < 1.0:
             out_dx *= m
             out_dy *= m
 
-        # гистерезис щипка
+        # гистерезис щипка (fallback, основной путь — circle gestures)
         down = up = False
         if pinch is not None:
             if not self._pinch and pinch < self._close:
