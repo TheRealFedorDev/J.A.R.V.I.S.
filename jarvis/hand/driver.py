@@ -69,7 +69,11 @@ class HandLandmarkerDriver:
 
     # ------------------------------------------------------------------
     def extract(self, frame):
-        """Возвращает (nx, ny, pinch_ratio) или None, если руки не видно."""
+        """Возвращает (nx, ny, pinch_ratio, landmarks) или None (руки нет).
+
+        landmarks — 21 точка (x, y) нормализованных координат кадра
+        (MediaPipe порядок) — рисуется скелет в UI.
+        """
         rgb = np.ascontiguousarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         ts = int(time.time() * 1000)
         if ts <= self._last_ts_ms:
@@ -88,4 +92,7 @@ class HandLandmarkerDriver:
         )
         nx, ny = H.fingers_xy(lms)
         pinch = H.pinch_ratio(lms)
-        return (nx, ny, pinch)
+        landmarks = tuple(
+            (float(lm.x), float(lm.y)) for lm in res.hand_landmarks[0]
+        )
+        return (nx, ny, pinch, landmarks)

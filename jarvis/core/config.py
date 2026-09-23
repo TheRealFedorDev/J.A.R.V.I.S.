@@ -150,6 +150,31 @@ class HandConfig:
 
 
 @dataclass
+class GazeConfig:
+    """Параметры трекера взгляда (eyetrax + MediaPipe FaceLandmarker)."""
+
+    enabled: bool = True                     # включать ли подсистему взгляда
+    camera_index: int = 0                    # индекс веб-камеры (0 → фоллбэк 1)
+    model_path: Path = field(
+        default_factory=lambda: Path("models/gaze/model.pkl")
+    )                                        # обученная модель eyetrax (pickle)
+    face_landmarker_path: str | None = None  # путь к face_landmarker.task (None → кэш)
+    calibration: str = "5p"                  # 5p (быстро) | 9p (точно)
+
+    @classmethod
+    def from_env(cls) -> "GazeConfig":
+        raw_model = os.environ.get("GAZE_MODEL_PATH")
+        raw_face = os.environ.get("GAZE_FACE_LANDMARKER_PATH")
+        return cls(
+            enabled=_env_bool("GAZE_ENABLED", True),
+            camera_index=_env_int("GAZE_CAMERA", 0),
+            model_path=Path(raw_model) if raw_model else Path("models/gaze/model.pkl"),
+            face_landmarker_path=raw_face or None,
+            calibration=_env("GAZE_CALIBRATION", "5p"),
+        )
+
+
+@dataclass
 class VoiceConfig:
     """Параметры голосового управления (vosk, оффлайн)."""
 
@@ -182,6 +207,7 @@ class AppConfig:
     log_level: str = "INFO"
     pointer: PointerConfig = field(default_factory=PointerConfig.from_env)
     hand: HandConfig = field(default_factory=HandConfig.from_env)
+    gaze: GazeConfig = field(default_factory=GazeConfig.from_env)
     voice: VoiceConfig = field(default_factory=VoiceConfig.from_env)
     overlay: OverlayConfig = field(default_factory=OverlayConfig.from_env)
 
@@ -194,6 +220,7 @@ class AppConfig:
             log_level=_env("JARVIS_LOG_LEVEL", "INFO"),
             pointer=PointerConfig.from_env(),
             hand=HandConfig.from_env(),
+            gaze=GazeConfig.from_env(),
             voice=VoiceConfig.from_env(),
             overlay=OverlayConfig.from_env(),
         )

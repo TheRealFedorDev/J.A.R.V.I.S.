@@ -73,6 +73,38 @@ class HandSample:
     pinch: float | None = None
     confidence: float = 0.0
     hand_count: int = 0
+    landmarks: tuple[tuple[float, float], ...] | None = None  # 21 точка (x, y) 0..1 — скелет для UI
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True)
+class GazeSample:
+    """Один сэмпл взгляда (трекер → шина): экранные координаты + статус лица.
+
+    x, y — положение точки взгляда в ЭКРАННЫХ пикселях; None — лицо
+    потеряно или идёт моргание (точку не рисуем, курсор не двигаем).
+    noise — оценка дрожи (std последних сэмплов, px); >30 ≈ «перекалибруйся».
+    """
+
+    x: float | None = None
+    y: float | None = None
+    face: bool = False
+    blink: bool = False
+    noise: float | None = None
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True)
+class VoicePartialEvent:
+    """Частично распознанная речь — стриминг, пока человек ещё говорит.
+
+    Публикуется на лету (vosk partial result), чтобы UI показывал текст
+    до завершения фразы. `final=True` — фраза завершена (дублирует текст
+    финального результата, затем публикуется VoiceCommandEvent).
+    """
+
+    text: str = ""
+    final: bool = False
     timestamp: float = field(default_factory=time.time)
 
 
