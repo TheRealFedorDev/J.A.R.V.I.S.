@@ -48,7 +48,7 @@ def test_join_segments():
 def test_voice_config_asr_defaults():
     cfg = VoiceConfig.from_env()
     assert cfg.asr == "faster-whisper"
-    assert cfg.whisper_model == "large-v3"
+    assert cfg.whisper_model == "medium"
     assert cfg.whisper_language == "ru"
 
 

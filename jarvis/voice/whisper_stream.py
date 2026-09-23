@@ -23,7 +23,7 @@ class WhisperStreamDecoder:
     def __init__(
         self,
         *,
-        model_name: str = "large-v3",
+        model_name: str = "medium",
         device: str = "auto",
         compute_type: str = "default",
         language: str | None = "ru",

@@ -183,7 +183,7 @@ class VoiceConfig:
     model_path: Path = field(
         default_factory=lambda: Path("models/vosk/vosk-model-small-ru-0.22")
     )                                        # путь vosk (фоллбэк ASR)
-    whisper_model: str = "large-v3"          # размер/имя модели faster-whisper
+    whisper_model: str = "medium"             # размер/имя модели faster-whisper
     whisper_device: str = "auto"             # auto | cpu | cuda
     whisper_compute_type: str = "default"    # default | int8 | float16 | ...
     whisper_language: str = "ru"             # язык распознавания
@@ -205,7 +205,7 @@ class VoiceConfig:
             enabled=_env_bool("VOICE_ENABLED", True),
             asr=asr,
             model_path=Path(raw) if raw else Path("models/vosk/vosk-model-small-ru-0.22"),
-            whisper_model=os.environ.get("WHISPER_MODEL") or "large-v3",
+            whisper_model=os.environ.get("WHISPER_MODEL") or "medium",
             whisper_device=os.environ.get("WHISPER_DEVICE") or "auto",
             whisper_compute_type=os.environ.get("WHISPER_COMPUTE_TYPE") or "default",
             whisper_language=os.environ.get("WHISPER_LANGUAGE") or "ru",
