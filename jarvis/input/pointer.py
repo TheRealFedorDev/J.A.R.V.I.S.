@@ -1,8 +1,10 @@
 """PointerService — подсистема управления физическим курсором.
 
-Подписывается на событие `` и двигает настоящую мышь
-(через pynput.mouse.Controller). Работает «по событиям», поэтому
-собственный цикл держит только поток живым до остановки.
+Подписывается на события ``GazeSample`` (движение курсора взглядом) и
+``HandSample`` (воздушная мышь), а также на ``VoiceCommandEvent``
+(клик/скролл голосом) и двигает настоящую мышь (через pynput.mouse.Controller).
+Работает «по событиям», поэтому собственный цикл держит только поток живым
+до остановки.
 
 Обработка движения курсора:
 1. скоупинг чувствительностью относительно центра экрана (sensitivity);
@@ -24,6 +26,7 @@ from pynput.mouse import Button, Controller
 from jarvis.core.config import HandConfig, PointerConfig
 from jarvis.core.events import (
     EventBus,
+    GazeSample,
     HandSample,
     PointerStatusEvent,
     RecenteringEvent,
@@ -82,9 +85,11 @@ class PointerService(BaseService):
         self._recenter_active = False      # идёт ли сбор точек для выравнивания
         self._recenter_start = 0.0
         self._recenter_buf: list[tuple[float, float]] = []
+        self._gaze_lost_at: float | None = None  # когда взгляда не было (dropout)
         self._screen_w, self._screen_h = primary_screen_size()
         self._click_active = False         # курсор зафиксирован при клике
         bus.subscribe(VoiceCommandEvent, self._on_voice_command)
+        bus.subscribe(GazeSample, self._on_gaze_sample)
         if self._hc is not None and self._hc.enabled:
             bus.subscribe(HandSample, self._on_hand_sample)
         log.info(
@@ -193,6 +198,50 @@ class PointerService(BaseService):
             direction = ev.args.get("direction", "down")
             self._mouse.scroll(0, -amount if direction == "down" else amount)
         log.info("голос: %s выполнен", a)
+
+    # ------------------------------------------------------------------
+    # Обработчик события взгляда (основной канал курсора)
+    # ------------------------------------------------------------------
+    def _on_gaze_sample(self, sample: GazeSample) -> None:
+        # Взгляда нет (лицо потеряно / моргание): курсор замирает, фильтр
+        # держим живым dropout секунд — короткие пропуски не сбрасывают.
+        if sample.x is None or sample.y is None:
+            if self._gaze_lost_at is None:
+                self._gaze_lost_at = time.monotonic()
+            elif time.monotonic() - self._gaze_lost_at >= self._config.dropout:
+                self._smoother.reset()
+                self._last_applied = None
+                self._gaze_lost_at = time.monotonic()  # не дрейфуем
+            return
+        self._gaze_lost_at = None
+
+        # Выравнивание: собираем сырые точки, пока смотрите в центр ~1.5 с.
+        if self._recenter_active:
+            self._recenter_buf.append((sample.x, sample.y))
+            if time.monotonic() - self._recenter_start >= 1.5:
+                self._finish_recenter()
+            return
+
+        if not self._enabled or self._hand_active:
+            return  # рука ведёт курсор; взгляд в это время игнорируем
+
+        # калибровочное/выровненное смещение → чувствительность → фильтр
+        x = sample.x + self._offset[0]
+        y = sample.y + self._offset[1]
+        x, y = self._scale(x, y)
+        sx, sy = self._smoother.step(x, y)
+
+        # мёртвая зона против «дребезга» в покое (сравнение с применённой точкой)
+        if self._last_applied is not None:
+            if math.hypot(sx - self._last_applied[0], sy - self._last_applied[1]) < (
+                self._config.dead_zone
+            ):
+                return
+        self._last_applied = (sx, sy)
+        self._last_time = time.monotonic()
+        nx = min(max(sx, 0.0), float(self._screen_w - 1))
+        ny = min(max(sy, 0.0), float(self._screen_h - 1))
+        self._mouse.position = (int(nx), int(ny))
 
     # ------------------------------------------------------------------
     # Обработчик событий руки (воздушная мышь)

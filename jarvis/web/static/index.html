@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Berta — J.A.R.V.I.S</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+</head>
+<body>
+  <!-- ══════════ ШАПКА ══════════ -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">B</span>
+      <div class="brand-text">
+        <strong>BERTA</strong>
+        <small>J.A.R.V.I.S · локальный ассистент</small>
+      </div>
+    </div>
+
+    <div class="status-pill" id="statusPill" data-state="boot">
+      <span class="dot"></span>
+      <span id="statusText">Запуск…</span>
+    </div>
+
+    <nav class="profiles" id="profileTabs" aria-label="Профили">
+      <button data-profile="home" class="active">Дом</button>
+      <button data-profile="assist">Ассист</button>
+      <button data-profile="study" title="P1">Учёба</button>
+    </nav>
+
+    <div class="top-actions">
+      <button class="icon-btn" id="micBtn" title="Микрофон" data-on="true">🎙</button>
+      <button class="icon-btn" id="ttsBtn" title="Озвучка" data-on="true">🔊</button>
+      <button class="icon-btn" id="themeBtn" title="Тема">🌙</button>
+      <button class="icon-btn" id="contrastBtn" title="Высокий контраст">◐</button>
+    </div>
+  </header>
+
+  <!-- ══════════ ЖИВАЯ ПОДПИСЬ РЕЧИ ══════════ -->
+  <div class="live-caption" id="liveCaption" hidden>
+    <span class="live-tag" id="liveTag">СЛУШАЮ</span>
+    <span class="live-text" id="liveText"></span>
+  </div>
+
+  <!-- ══════════ ОСНОВНАЯ ЗОНА ══════════ -->
+  <main class="stage">
+    <section class="console" aria-label="Диалог">
+      <div class="log" id="log">
+        <div class="msg bot">
+          <div class="avatar">B</div>
+          <div class="bubble">
+            Привет! Я Berta. Говорите или печатайте команды:
+            <em>«открой блокнот», «клик», «найди погоду»</em>.
+            Камера слева внизу — рука, лицо и жесты.
+          </div>
+        </div>
+      </div>
+
+      <div class="quick" id="quickRow">
+        <button data-cmd="открой блокнот">📝 Блокнот</button>
+        <button data-cmd="клик">🖱 Клик</button>
+        <button data-cmd="скролл вниз">⬇ Скролл</button>
+        <button data-cmd="найди погоду">🌦 Погода</button>
+        <button data-cmd="помощь">❓ Помощь</button>
+        <button data-cmd="калибровка">🎯 Калибровка</button>
+      </div>
+
+      <form class="composer" id="composer">
+        <input id="cmdInput" type="text" autocomplete="off"
+               placeholder="Команда для Berta…  (Enter — отправить)">
+        <button type="submit" class="send-btn">➤</button>
+      </form>
+    </section>
+
+    <aside class="audit-panel" aria-label="Журнал">
+      <header>
+        <h2>Журнал действий</h2>
+        <span class="badge" id="auditCount">0</span>
+      </header>
+      <ul id="auditList"></ul>
+    </aside>
+  </main>
+
+  <!-- ══════════ КАМЕРА: PIP слева-снизу ≈ ¼ экрана ══════════ -->
+  <section class="cam-dock" id="camDock" aria-label="Камера">
+    <header class="cam-head">
+      <span class="cam-title">📷 Камера</span>
+      <span class="cam-meta">
+        <span id="camFps">— FPS</span>
+        <span id="camFace" class="chip off">лицо ✗</span>
+        <span id="camGesture" class="chip">—</span>
+      </span>
+      <button class="cam-collapse" id="camCollapse" title="Свернуть">–</button>
+    </header>
+
+    <div class="cam-stage" id="camStage">
+      <img id="camImg" src="/stream.mjpg" alt="поток камеры">
+      <canvas id="skelCanvas"></canvas>
+      <div class="cam-placeholder" id="camPlaceholder">ожидание камеры…</div>
+      <div class="recenter-target" id="recenterTarget" hidden>⊕</div>
+    </div>
+
+    <footer class="cam-actions">
+      <button id="btnCalibrate">Калибровка</button>
+      <button id="btnRecenter">Выровнять</button>
+      <button id="btnResetOffset">Сброс</button>
+      <button id="btnCursor" class="on">Курсор: ВКЛ</button>
+    </footer>
+  </section>
+
+  <!-- ══════════ ЭКСТРЕННАЯ ОСТАНОВКА (ТЗ §4.2) ══════════ -->
+  <button class="emergency" id="emergencyBtn" title="Экстренная остановка">
+    <span>СТОП</span>
+  </button>
+
+  <!-- ══════════ МОДАЛКА ПОДТВЕРЖДЕНИЯ (ТЗ §9) ══════════ -->
+  <div class="modal-backdrop" id="confirmModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <h3>⚠ Опасное действие</h3>
+      <p id="confirmText">—</p>
+      <div class="modal-actions">
+        <button class="danger" id="confirmYes">Подтвердить</button>
+        <button id="confirmNo">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
