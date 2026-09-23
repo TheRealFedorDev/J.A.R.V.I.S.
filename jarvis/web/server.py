@@ -17,6 +17,13 @@ log = logging.getLogger("jarvis.web")
 _STATIC = Path(__file__).resolve().parent / "static"
 
 
+def _dumps(obj) -> str:
+    """JSON с фоллбэком на numpy-типы (np.bool_ из eyetrax и т.п.)."""
+    from jarvis.web.state import json_default
+
+    return json.dumps(obj, ensure_ascii=False, default=json_default)
+
+
 # ---------------------------------------------------------------------------
 # Модели запросов
 # ---------------------------------------------------------------------------
@@ -79,15 +86,12 @@ def create_app(state) -> FastAPI:
         q: asyncio.Queue = asyncio.Queue(maxsize=256)
         state.bcast.add(q)
         try:
-            await websocket.send_text(json.dumps(
+            await websocket.send_text(_dumps(
                 {"type": "snapshot", "data": state.snapshot()},
-                ensure_ascii=False,
             ))
             while True:
                 msg = await q.get()
-                await websocket.send_text(
-                    json.dumps(msg, ensure_ascii=False)
-                )
+                await websocket.send_text(_dumps(msg))
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:

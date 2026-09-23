@@ -1,4 +1,4 @@
-"""Голосовое управление (микрофон + vosk)."""
+"""Голосовое управление (микрофон + faster-whisper / vosk)."""
 
 from jarvis.voice.commands import VoiceCommand, parse_command
 from jarvis.voice.service import VoiceService

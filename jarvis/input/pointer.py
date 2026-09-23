@@ -35,6 +35,7 @@ from jarvis.core.events import (
 from jarvis.core.screen import primary_screen_size
 from jarvis.core.service import BaseService
 from jarvis.hand.pointer import HandPointerState
+from jarvis.input.gestures import finger_controls, touch_hysteresis
 from jarvis.input.smoothing import Smoother, create_smoother
 
 log = logging.getLogger("jarvis.pointer")
@@ -77,6 +78,10 @@ class PointerService(BaseService):
         )
         self._hand_active = False       # ведёт ли сейчас курсор рука
         self._hand_dropout_at: float | None = None
+        self._click_touch = False       # гистерезис: указатель+большой → ЛКМ
+        self._drag_touch = False        # гистерезис: средний+большой → drag
+        self._drag_down = False         # ЛКМ зажата для drag&drop
+        self._click_prev = False        # предыдущий фронт клика
         self._enabled = config.enabled
         self._last_applied: tuple[float, float] | None = None
         self._last_time: float | None = None
@@ -257,6 +262,9 @@ class PointerService(BaseService):
                     time.monotonic() - self._hand_dropout_at >= (
                         self._hc.dropout if self._hc else 0.8
                     ):
+                self._release_drag()
+                self._click_touch = False
+                self._click_prev = False
                 if self._hand_state.pinch_pressed:
                     self._mouse.release(Button.left)
                 self._hand_active = False
@@ -266,24 +274,59 @@ class PointerService(BaseService):
 
         self._hand_dropout_at = None
         width, height = primary_screen_size()
-        cmd = self._hand_state.step((sample.x, sample.y), sample.pinch,
-                                    width, height)
-        if cmd.dx is None:
-            return
+
+        # кружочки кончиков: индекс → мышь, индекс+большой → ЛКМ,
+        # средний+большой → drag&drop (удержание ЛКМ)
+        fc = finger_controls(sample.landmarks) if sample.landmarks else None
+        if fc is not None:
+            cmd = self._hand_state.step(fc.mouse_xy, None, width, height)
+            self._update_circle_buttons(fc)
+        else:
+            # фоллбэк без лендмарков: старый щипок
+            cmd = self._hand_state.step((sample.x, sample.y), sample.pinch,
+                                        width, height)
+            if cmd.button_down:
+                self._mouse.press(Button.left)
+            if cmd.button_up:
+                self._mouse.release(Button.left)
+
+        # рука в кадре — взгляд не перехватывает курсор
         self._hand_active = True
         self._last_time = time.monotonic()
+        if cmd.dx is None:
+            return  # указатель не вытянут — позицию держим
 
         px, py = self._mouse.position
         nx = min(max(px + cmd.dx, 0.0), float(width - 1))
         ny = min(max(py + cmd.dy, 0.0), float(height - 1))
         self._mouse.position = (int(nx), int(ny))
 
-        if cmd.button_down:
-            self._mouse.press(Button.left)
-            log.debug("щипок: кнопка нажата")
-        if cmd.button_up:
+    def _update_circle_buttons(self, fc) -> None:
+        """ЛКМ по касанию кружков (гистерезис) + drag&drop (удержание)."""
+        click = touch_hysteresis(self._click_touch, fc.index_thumb_ratio)
+        drag = touch_hysteresis(self._drag_touch, fc.middle_thumb_ratio)
+        self._click_touch = click
+        self._drag_touch = drag
+
+        if drag:
+            if not self._drag_down:
+                self._mouse.press(Button.left)
+                self._drag_down = True
+                log.debug("drag: ЛКМ нажата (средний+большой)")
+        else:
+            self._release_drag()
+
+        rising = click and not self._click_prev
+        self._click_prev = click
+        if rising and not self._drag_down:
+            self._mouse.click(Button.left, 1)
+            log.debug("ЛКМ: клик (указатель+большой)")
+
+    def _release_drag(self) -> None:
+        if self._drag_down:
             self._mouse.release(Button.left)
-            log.debug("щипок: кнопка отпущена")
+            self._drag_down = False
+            log.debug("drag: ЛКМ отпущена")
 
     # ------------------------------------------------------------------
     def _finish_recenter(self) -> None:

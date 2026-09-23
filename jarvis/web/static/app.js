@@ -271,6 +271,7 @@ function handleHand(data) {
       fist: "✊ Кулак", palm: "🖐 Ладонь",
       thumbs_up: "👍", thumbs_down: "👎",
       point: "☝ Указатель", pinch: "🤏 Щипок",
+      click: "🖱 ЛКМ", drag: "↔ Drag",
     };
     el.camGesture.textContent = labels[data.gesture] || data.gesture;
     el.camGesture.classList.add("gesture");

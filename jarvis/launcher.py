@@ -57,14 +57,15 @@ def build_core():
     # Голос: «клик», «двойной», «право», «скролл», «калибровка», «включи/выключи».
     voice = None
     if config.voice.enabled:
-        voice = VoiceService(config.voice, bus)
-        if not Path(config.voice.model_path).exists():
+        asr = (config.voice.asr or "faster-whisper").lower()
+        if asr == "vosk" and not Path(config.voice.model_path).exists():
             log.warning(
                 "модель vosk не найдена (%s) — голос отключён. Скачайте из "
                 "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip",
                 config.voice.model_path,
             )
-            voice = None
+        else:
+            voice = VoiceService(config.voice, bus)
     if voice is not None:
         bus.subscribe(
             VoiceCommandEvent,

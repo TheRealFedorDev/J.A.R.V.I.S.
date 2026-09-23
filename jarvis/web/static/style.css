@@ -59,6 +59,10 @@ body {
     radial-gradient(900px 600px at -10% 110%, rgba(255, 209, 102, 0.07), transparent 55%),
     linear-gradient(160deg, var(--bg), var(--bg-2));
   overflow: hidden;
+  /* колонка: шапка → подпись → сцена (сцена забирает ровно остаток) */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 button {
@@ -167,7 +171,10 @@ button:active { transform: scale(0.97); }
   border: 1px dashed rgba(0, 229, 255, 0.35);
   border-radius: var(--radius);
   min-height: 22px;
+  flex: 0 0 auto;
 }
+/* display:flex перебивает [hidden] из UA — гасим явно */
+.live-caption[hidden] { display: none !important; }
 .live-tag {
   font-size: 11px;
   font-weight: 800;
@@ -183,7 +190,8 @@ button:active { transform: scale(0.97); }
   display: grid;
   grid-template-columns: 1fr 300px;
   gap: 14px;
-  height: calc(100vh - 60px);
+  flex: 1 1 auto;
+  min-height: 0;           /* иначе grid-элементы не сжимаются → сцена уезжает вниз */
   padding: 14px 18px 18px;
 }
 
@@ -192,11 +200,13 @@ button:active { transform: scale(0.97); }
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   margin-left: max(0px, calc(var(--cam-w) - 26vw));
 }
 
 .log {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -246,6 +256,7 @@ button:active { transform: scale(0.97); }
   flex-wrap: wrap;
   gap: 8px;
   padding: 8px 4px;
+  flex: 0 0 auto;          /* быстрые кнопки не сжимаются — всегда видны */
 }
 .quick button { font-size: 13px; padding: 7px 12px; }
 
@@ -253,6 +264,7 @@ button:active { transform: scale(0.97); }
   display: flex;
   gap: 10px;
   padding-top: 4px;
+  flex: 0 0 auto;          /* поле ввода всегда в кадре — не уезжает вниз */
 }
 .composer input {
   flex: 1;
@@ -284,7 +296,8 @@ button:active { transform: scale(0.97); }
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  max-height: calc(100vh - 140px);
+  min-height: 0;
+  height: 100%;
 }
 .audit-panel header {
   display: flex;

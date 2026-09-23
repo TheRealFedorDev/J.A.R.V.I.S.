@@ -17,7 +17,8 @@ PyQt6
 edge-tts>=7.0          # синтез: стрим mp3-чанков (neural голоса EN/RU)
 sounddevice>=0.5       # playback (callback PortAudio) + захват микрофона
 av>=12.0               # инкрементальный декод mp3 → PCM
-vosk>=0.3.45           # офлайн-распознавание (partial-результаты на лету)
+faster-whisper>=1.2    # STT large-v3: стриминг + partial (по умолчанию)
+vosk>=0.3.45           # офлайн-STT фоллбэк (VOICE_ASR=vosk)
 pyttsx3                # офлайн-фоллбэк TTS (SAPI5)
 
 # --- Web-панель Berta (по умолчанию python main.py) ---

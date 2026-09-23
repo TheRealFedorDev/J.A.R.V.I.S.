@@ -33,6 +33,35 @@ _AUDIT_MAX = 300
 _PENDING_TTL = 120.0                        # жизнь confirm-запроса, с
 
 
+def _py(value):
+    """numpy/скаляр → чистый Python-тип (np.bool_ не сериализуется в JSON)."""
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_py(v) for v in value]
+    try:
+        import numpy as np
+
+        if isinstance(value, np.bool_):
+            return bool(value)
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, np.floating):
+            return float(value)
+        if isinstance(value, np.ndarray):
+            return _py(value.tolist())
+    except ImportError:
+        pass
+    if isinstance(value, (int, float)):
+        return value
+    return str(value)
+
+
+def json_default(obj):
+    """default= для json.dumps — гасит numpy-типы из eyetrax/mediapipe."""
+    return _py(obj)
+
+
 # ---------------------------------------------------------------------------
 # Профили (ТЗ §4: Дом / Ассист / Учёба)
 # ---------------------------------------------------------------------------
@@ -279,7 +308,9 @@ class AppState:
 
     def _on_gaze(self, e: GazeSample) -> None:
         self.gaze = {
-            "x": e.x, "y": e.y, "face": e.face, "blink": e.blink, "noise": e.noise,
+            "x": _py(e.x), "y": _py(e.y),
+            "face": bool(e.face), "blink": bool(e.blink),
+            "noise": _py(e.noise),
         }
         self.bcast.push("gaze", self.gaze, throttle_key="gaze")
 
@@ -290,9 +321,10 @@ class AppState:
         # лендмарки тяжелее — реже (front рисует скелет ~10 FPS)
         lms = e.landmarks
         self.hand = {
-            "x": e.x, "y": e.y, "pinch": e.pinch, "gesture": gesture,
-            "landmarks": [list(p) for p in lms] if lms else None,
-            "confidence": e.confidence,
+            "x": _py(e.x), "y": _py(e.y), "pinch": _py(e.pinch),
+            "gesture": gesture,
+            "landmarks": [[float(px), float(py)] for px, py in lms] if lms else None,
+            "confidence": float(e.confidence or 0.0),
         }
         self.bcast.push("hand", self.hand, throttle_key="hand")
 

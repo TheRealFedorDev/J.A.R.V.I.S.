@@ -98,9 +98,9 @@ class GazeSample:
 class VoicePartialEvent:
     """Частично распознанная речь — стриминг, пока человек ещё говорит.
 
-    Публикуется на лету (vosk partial result), чтобы UI показывал текст
-    до завершения фразы. `final=True` — фраза завершена (дублирует текст
-    финального результата, затем публикуется VoiceCommandEvent).
+    Публикуется на лету (rolling partial faster-whisper / vosk), чтобы UI
+    показывал текст до завершения фразы. `final=True` — фраза завершена
+    (дублирует текст финального результата, затем публикуется VoiceCommandEvent).
     """
 
     text: str = ""
@@ -110,7 +110,7 @@ class VoicePartialEvent:
 
 @dataclass(frozen=True)
 class VoiceCommandEvent:
-    """Распознанная голосовая команда (аудио-loop → vosk → шина)."""
+    """Распознанная голосовая команда (аудио-loop → STT → шина)."""
 
     action: str | None          # click | double_click | right_click | scroll | enable | disable | calibrate | None
     args: dict = field(default_factory=dict)
