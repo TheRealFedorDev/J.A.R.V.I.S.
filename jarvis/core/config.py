@@ -179,7 +179,7 @@ class VoiceConfig:
     """Параметры голосового управления (faster-whisper / vosk, оффлайн)."""
 
     enabled: bool = True                     # включать ли голос
-    agent: str = "legacy"                    # legacy (VoiceService) | pipecat (разговорный контур)
+    agent: str = "legacy"                    # legacy (VoiceService) | pipecat | livekit
     asr: str = "faster-whisper"              # faster-whisper | vosk
     model_path: Path = field(
         default_factory=lambda: Path("models/vosk/vosk-model-small-ru-0.22")
@@ -205,7 +205,7 @@ class VoiceConfig:
         if asr not in ("faster-whisper", "vosk"):
             asr = "faster-whisper"
         agent = (_env("VOICE_AGENT", "legacy") or "legacy").strip().lower()
-        if agent not in ("legacy", "pipecat"):
+        if agent not in ("legacy", "pipecat", "livekit"):
             agent = "legacy"
         return cls(
             enabled=_env_bool("VOICE_ENABLED", True),

@@ -66,7 +66,18 @@ def build_core():
             )
         else:
             agent = (config.voice.agent or "legacy").lower()
-            if agent == "pipecat":
+            if agent == "livekit":
+                try:
+                    from jarvis.voice.livekit_service import LiveKitVoiceService
+
+                    voice = LiveKitVoiceService(config.voice, bus)
+                    log.info("голос: LiveKit-агент (STT→LLM→TTS, barge-in)")
+                except Exception as exc:
+                    log.warning(
+                        "LiveKit-агент недоступен (%s) — fallback на VoiceService", exc
+                    )
+                    voice = VoiceService(config.voice, bus)
+            elif agent == "pipecat":
                 try:
                     from jarvis.voice.pipecat_agent import PipecatVoiceService
 

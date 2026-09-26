@@ -104,7 +104,14 @@ async def web_search(context: RunContext, query: str) -> str:
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
+    # mode="vad" отключает AdaptiveInterruptionDetector: он ходит в облако
+    # LiveKit Inference, падает без API-ключа и блокирует loop на ~3 c.
+    # Прерывания и конец фразы определяет silero VAD — всё остаётся локальным.
+    turn_handling = {"interruption": {"mode": "vad"}}
+
     session = AgentSession(
+        turn_detection=None,
+        turn_handling=turn_handling,
         vad=silero.VAD.load(min_silence_duration=MIN_SILENCE),
         stt=openai.STT(
             model="whisper-1",
@@ -127,6 +134,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     agent = Agent(
         instructions=INSTRUCTIONS,
+        turn_handling=turn_handling,
         tools=[current_time, web_search] if WEB_SEARCH_ENABLED else [current_time],
     )
 
