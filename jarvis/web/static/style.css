@@ -78,7 +78,7 @@ button {
 button:hover { background: rgba(0, 229, 255, 0.12); border-color: var(--accent); }
 button:active { transform: scale(0.97); }
 
-/* ══════════ ШАПКА ══════════ */
+/* ══════════ ШАПКА ═════════= */
 .topbar {
   position: relative;
   z-index: 30;
@@ -103,6 +103,23 @@ button:active { transform: scale(0.97); }
 }
 .brand-text strong { display: block; letter-spacing: 3px; font-size: 15px; }
 .brand-text small { color: var(--muted); font-size: 11px; }
+
+/* красивый пульс бренда */
+.brand-mark {
+  position: relative;
+  width: 38px; height: 38px;
+  display: grid; place-items: center;
+  font-weight: 800; font-size: 20px;
+  color: #041018;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-radius: 12px;
+  box-shadow: 0 0 18px rgba(0, 229, 255, 0.45);
+  animation: brand-pulse 3s ease-in-out infinite;
+}
+@keyframes brand-pulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(0, 229, 255, 0.45); }
+  50% { box-shadow: 0 0 30px rgba(255, 209, 102, 0.5), 0 0 40px rgba(0, 229, 255, 0.3); }
+}
 
 .status-pill {
   display: flex; align-items: center; gap: 8px;
@@ -141,12 +158,45 @@ button:active { transform: scale(0.97); }
   padding: 7px 16px;
   border-radius: 999px;
   font-size: 13px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
 }
+.profiles button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 0;
+}
+.profiles button:hover::before { opacity: 0.15; }
 .profiles button.active {
   background: linear-gradient(135deg, rgba(0, 229, 255, 0.25), rgba(255, 209, 102, 0.18));
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 700;
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
+}
+.profiles button.active::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 2px solid var(--accent-2);
+  opacity: 0.6;
+  z-index: -1;
+  animation: pulse-accent 2s ease-in-out infinite;
+}
+@keyframes pulse-accent {
+  0%, 100% { opacity: 0.3; border-color: var(--accent-2); }
+  50% { opacity: 0.6; border-color: var(--accent); }
 }
 
 .top-actions { margin-left: auto; display: flex; gap: 8px; }
@@ -182,6 +232,80 @@ button:active { transform: scale(0.97); }
   color: var(--accent);
 }
 .live-text { font-size: 16px; color: var(--text); }
+
+/* ══════════ ИИ-ШАРИК (orb-ui) ══════════ */
+.orb-float {
+  position: relative;
+  z-index: 15;
+  margin: 0 auto;
+  width: fit-content;
+  animation: orb-float 5s ease-in-out infinite;
+}
+@keyframes orb-float {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(1.03); }
+}
+#ai-orb {
+  width: 220px;
+  height: 220px;
+  filter: drop-shadow(0 0 30px rgba(0, 229, 255, 0.25));
+  transition: filter 0.3s ease;
+}
+body[data-orb-state="listening"] .orb-float {
+  filter: drop-shadow(0 0 32px rgba(51, 255, 154, 0.35));
+}
+body[data-orb-state="thinking"] .orb-float {
+  filter: drop-shadow(0 0 32px rgba(255, 209, 102, 0.35));
+}
+body[data-orb-state="speaking"] .orb-float {
+  filter: drop-shadow(0 0 36px rgba(0, 229, 255, 0.5));
+  animation: orb-pulse 1s ease-in-out infinite;
+}
+@keyframes orb-pulse {
+  0%, 100% { filter: drop-shadow(0 0 36px rgba(0, 229, 255, 0.5)); }
+  50% { filter: drop-shadow(0 0 48px rgba(0, 229, 255, 0.6)); }
+}
+
+/* адаптив размера орба */
+@media (max-width: 720px) {
+  #ai-orb { width: 180px; height: 180px; }
+}
+body.profile-assist #ai-orb { width: 300px; height: 300px; }
+body.profile-assist .orb-float { animation-duration: 4s; }
+
+/* визуал конвейера голоса */
+.pipeline {
+  margin: 8px auto 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(0, 229, 255, 0.05);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-family: "Segoe UI Mono", monospace;
+  letter-spacing: 0.5px;
+}
+.pipeline[hidden] { display: none; }
+.pipe-step {
+  padding: 3px 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  transition: all 0.3s ease;
+}
+.pipe-step.active {
+  background: rgba(0, 229, 255, 0.15);
+  color: var(--accent);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+}
+.pipe-step.done {
+  color: var(--ok);
+}
+.pipe-arrow {
+  color: var(--line);
+  opacity: 0.5;
+}
 
 /* ══════════ СЦЕНА ══════════ */
 .stage {
@@ -255,10 +379,29 @@ button:active { transform: scale(0.97); }
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 8px 4px;
+  padding: 12px 4px;
   flex: 0 0 auto;          /* быстрые кнопки не сжимаются — всегда видны */
 }
-.quick button { font-size: 13px; padding: 7px 12px; }
+.quick button {
+  flex: 1 1 min(140px, 100%);
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  transition: all 0.2s ease;
+  text-align: center;
+}
+.quick button:hover {
+  background: rgba(0, 229, 255, 0.12);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 229, 255, 0.15);
+}
+.quick button:active {
+  transform: translateY(0);
+}
 
 .composer {
   display: flex;
@@ -340,11 +483,13 @@ button:active { transform: scale(0.97); }
   margin-right: 6px;
 }
 
-/* ══════════ КАМЕРА PIP (слева-снизу ≈¼ экрана) ══════════ */
+/* ══════════ КАМЕРА PIP (слева-снизу ≈¼ экрана, drag+resize) ══════════ */
 .cam-dock {
   position: fixed;
   left: 14px;
   bottom: 14px;
+  top: auto;
+  right: auto;
   z-index: 40;
   width: var(--cam-w);
   height: var(--cam-h);
@@ -360,6 +505,17 @@ button:active { transform: scale(0.97); }
   overflow: hidden;
   transition: height 0.25s, transform 0.25s;
 }
+/* позиция/размер из localStorage — transition мешает drag/resize */
+.cam-dock.custom-pos {
+  transition: none;
+  bottom: auto;
+}
+.cam-dock.dragging,
+.cam-dock.resizing {
+  transition: none;
+  opacity: 0.92;
+  user-select: none;
+}
 .cam-dock.collapsed { height: 46px; min-height: 46px; }
 .cam-dock.collapsed .cam-stage,
 .cam-dock.collapsed .cam-actions { display: none; }
@@ -372,7 +528,9 @@ button:active { transform: scale(0.97); }
   border-bottom: 1px solid var(--line);
   background: rgba(0, 229, 255, 0.05);
   user-select: none;
+  cursor: grab;
 }
+.cam-dock.dragging .cam-head { cursor: grabbing; }
 .cam-title { font-size: 13px; font-weight: 700; letter-spacing: 0.5px; }
 .cam-meta { display: flex; gap: 6px; margin-left: auto; font-size: 11px; color: var(--muted); }
 .chip {
@@ -390,7 +548,34 @@ button:active { transform: scale(0.97); }
   font-size: 16px;
   line-height: 1;
   border-radius: 8px;
+  cursor: pointer;
+  position: relative;
+  z-index: 2;
 }
+
+/* угловой хэндл resize */
+.cam-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  background: linear-gradient(
+    135deg,
+    transparent 50%,
+    rgba(0, 229, 255, 0.55) 50%,
+    rgba(0, 229, 255, 0.55) 60%,
+    transparent 60%,
+    transparent 70%,
+    rgba(0, 229, 255, 0.55) 70%,
+    rgba(0, 229, 255, 0.55) 80%,
+    transparent 80%
+  );
+  z-index: 3;
+  touch-action: none;
+}
+.cam-dock.collapsed .cam-resize { display: none; }
 
 .cam-stage {
   position: relative;

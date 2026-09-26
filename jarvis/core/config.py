@@ -179,6 +179,7 @@ class VoiceConfig:
     """Параметры голосового управления (faster-whisper / vosk, оффлайн)."""
 
     enabled: bool = True                     # включать ли голос
+    agent: str = "legacy"                    # legacy (VoiceService) | pipecat (разговорный контур)
     asr: str = "faster-whisper"              # faster-whisper | vosk
     model_path: Path = field(
         default_factory=lambda: Path("models/vosk/vosk-model-small-ru-0.22")
@@ -190,6 +191,8 @@ class VoiceConfig:
     vad_threshold: float = 0.012             # порог RMS для «говорит»
     silence_end: float = 0.55                # сек тишины → конец фразы
     partial_seconds: float = 0.85            # интервал partial-перетранскрибции
+    partial_max_seconds: float = 12.0       # окно аудио для одного partial (анти-рост буфера)
+    partial_work_budget: float = 24.0       # суммарный бюджет аудио на partial'ы за фразу
     device: int | None = None                # индекс микрофона sounddevice
     samplerate: int = 16000                  # 16 кГц (whisper/vosk)
     block_seconds: float = 0.25              # длительность блока захвата (сек)
@@ -201,8 +204,12 @@ class VoiceConfig:
         asr = (os.environ.get("VOICE_ASR") or "faster-whisper").strip().lower()
         if asr not in ("faster-whisper", "vosk"):
             asr = "faster-whisper"
+        agent = (_env("VOICE_AGENT", "legacy") or "legacy").strip().lower()
+        if agent not in ("legacy", "pipecat"):
+            agent = "legacy"
         return cls(
             enabled=_env_bool("VOICE_ENABLED", True),
+            agent=agent,
             asr=asr,
             model_path=Path(raw) if raw else Path("models/vosk/vosk-model-small-ru-0.22"),
             whisper_model=os.environ.get("WHISPER_MODEL") or "medium",
@@ -212,6 +219,8 @@ class VoiceConfig:
             vad_threshold=_env_float("VOICE_VAD_THRESHOLD", 0.012),
             silence_end=_env_float("VOICE_SILENCE_END", 0.55),
             partial_seconds=_env_float("VOICE_PARTIAL_SECONDS", 0.85),
+            partial_max_seconds=_env_float("VOICE_PARTIAL_MAX_SECONDS", 12.0),
+            partial_work_budget=_env_float("VOICE_PARTIAL_WORK_BUDGET", 24.0),
             device=_env_int("VOICE_DEVICE", 0) if raw_dev else None,
             samplerate=_env_int("VOICE_SAMPLERATE", 16000),
             block_seconds=_env_float("VOICE_BLOCK_SECONDS", 0.25),

@@ -173,9 +173,6 @@ def create_app(state) -> FastAPI:
         return {"current": profile.id, "title": profile.title,
                 "assist": profile.assist}
 
-    # ------------------------------------------------------------------
-    # Команды и подтверждения
-    # ------------------------------------------------------------------
     @app.post("/api/command")
     async def command(body: CommandIn) -> dict:
         text = body.text.strip()
@@ -204,14 +201,27 @@ def create_app(state) -> FastAPI:
                 state.bcast.push("router_end", {
                     "text": payload["text"], "reply": full, "source": "llm",
                 })
+                # озвучка ответа после стрима
+                if state.tts is not None and state.tts_enabled and full:
+                    state.bcast.push("orb_state", {"state": "speaking"})
+                    state.tts.speak_sync(full, timeout=30)
 
             loop.run_in_executor(None, _run)
             return {"ok": True, "source": "llm", "streaming": True,
                     "reply": "", "needs_confirm": False}
 
+        # немедленный ответ (правила / веб-поиск / fallback) + озвучка
+        reply = result.reply
+        if reply and state.tts is not None and state.tts_enabled:
+            loop = asyncio.get_running_loop()
+            def _speak() -> None:
+                state.bcast.push("orb_state", {"state": "speaking"})
+                state.tts.speak_sync(reply, timeout=30)
+            loop.run_in_executor(None, _speak)
+
         return {
             "ok": True,
-            "reply": result.reply,
+            "reply": reply,
             "action": result.action,
             "source": result.source,
             "needs_confirm": result.needs_confirm,

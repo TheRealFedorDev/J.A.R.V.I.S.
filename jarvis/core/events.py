@@ -118,6 +118,16 @@ class VoiceCommandEvent:
     timestamp: float = field(default_factory=time.time)
 
 
+@dataclass(frozen=True)
+class BotReplyEvent:
+    """Готовый ответ ассистента (поиск/LLM) → чат web-панели."""
+
+    text: str = ""
+    query: str = ""             # реплика пользователя (для bubble «Ф»)
+    source: str = "llm"         # search | llm | rules
+    timestamp: float = field(default_factory=time.time)
+
+
 # ---------------------------------------------------------------------------
 # Шина
 # ---------------------------------------------------------------------------

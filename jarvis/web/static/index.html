@@ -37,7 +37,22 @@
     </div>
   </header>
 
-  <!-- ══════════ ЖИВАЯ ПОДПИСЬ РЕЧИ ══════════ -->
+  <!-- ══════════ ИИ-ШАРИК (orb-ui) ══════════ -->
+  <div class="orb-wrapper">
+    <div id="ai-orb" class="orb-float" aria-hidden="true"></div>
+    <!-- визуал потока: STT → WebSearch/LLM → TTS -->
+    <div class="pipeline" id="pipelineBar" hidden>
+      <span class="pipe-step" data-step="stt">🎙 STT</span>
+      <span class="pipe-arrow">→</span>
+      <span class="pipe-step" data-step="search">🔍 WebSearch</span>
+      <span class="pipe-arrow">→</span>
+      <span class="pipe-step" data-step="llm">🧠 LLM</span>
+      <span class="pipe-arrow">→</span>
+      <span class="pipe-step" data-step="tts">🔊 TTS</span>
+    </div>
+  </div>
+
+  <!-- ══════════ ЖИВАЯ ПОДПИСЬ РЕЧИ (резерв) ══════════ -->
   <div class="live-caption" id="liveCaption" hidden>
     <span class="live-tag" id="liveTag">СЛУШАЮ</span>
     <span class="live-text" id="liveText"></span>
@@ -84,7 +99,7 @@
 
   <!-- ══════════ КАМЕРА: PIP слева-снизу ≈ ¼ экрана ══════════ -->
   <section class="cam-dock" id="camDock" aria-label="Камера">
-    <header class="cam-head">
+    <header class="cam-head" id="camHead" title="Перетащить">
       <span class="cam-title">📷 Камера</span>
       <span class="cam-meta">
         <span id="camFps">— FPS</span>
@@ -107,6 +122,7 @@
       <button id="btnResetOffset">Сброс</button>
       <button id="btnCursor" class="on">Курсор: ВКЛ</button>
     </footer>
+    <div class="cam-resize" id="camResize" title="Изменить размер"></div>
   </section>
 
   <!-- ══════════ ЭКСТРЕННАЯ ОСТАНОВКА (ТЗ §4.2) ══════════ -->
@@ -129,5 +145,6 @@
   <div class="toast" id="toast" hidden></div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/orb.js"></script>
 </body>
 </html>

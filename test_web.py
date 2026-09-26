@@ -236,11 +236,13 @@ def test_index_html(client):
     assert r.status_code == 200
     assert "BERTA" in r.text
     assert "cam-dock" in r.text
+    assert "orb.js" in r.text
 
 
 def test_static_css_js(client):
     assert client.get("/static/style.css").status_code == 200
     assert client.get("/static/app.js").status_code == 200
+    assert client.get("/static/orb.js").status_code == 200
 
 
 def test_health_and_status(client):

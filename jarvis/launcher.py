@@ -65,7 +65,20 @@ def build_core():
                 config.voice.model_path,
             )
         else:
-            voice = VoiceService(config.voice, bus)
+            agent = (config.voice.agent or "legacy").lower()
+            if agent == "pipecat":
+                try:
+                    from jarvis.voice.pipecat_agent import PipecatVoiceService
+
+                    voice = PipecatVoiceService(config.voice, bus)
+                    log.info("голос: pipecat-агент (STT→LLM→TTS)")
+                except Exception as exc:
+                    log.warning(
+                        "pipecat недоступен (%s) — fallback на VoiceService", exc
+                    )
+                    voice = VoiceService(config.voice, bus)
+            else:
+                voice = VoiceService(config.voice, bus)
     if voice is not None:
         bus.subscribe(
             VoiceCommandEvent,

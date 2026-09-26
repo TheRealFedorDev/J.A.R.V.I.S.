@@ -1,12 +1,13 @@
 """Роутер команд Berta (ТЗ §2).
 
 Правила (regex/подстроки) → действие ≤100 мс; сложные фразы → локальная
-LLM (Ollama + Qwen2.5, стриминг); если LLM недоступна — fallback на
+LLM (Ollama + llama3.2, стриминг); если LLM недоступна — fallback на
 жёсткие правила. Опасные действия требуют подтверждения (ТЗ §9).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -97,7 +98,7 @@ class CommandRouter:
         state — jarvis.web.state.AppState (даёт pointer/tracker/bus/audit/…).
         """
         self._state = state
-        self._llm_model = os.environ.get("LLM_MODEL", "qwen2.5:3b")
+        self._llm_model = os.environ.get("LLM_MODEL", "llama3.2:3b")
         self._llm_lock = threading.Lock()
 
     # ==================================================================
@@ -189,16 +190,29 @@ class CommandRouter:
             if res is not None:
                 return res
 
-        # --- 7. поиск/погода → браузер (fallback ТЗ §5) ---
+        # --- 7. быстрый веб-поиск: сначала пробуем ответить сами (погода,
+        # курс, факты) — и только если не вышло, открываем браузер (ТЗ §5) ---
         m = _SEARCH_RE.search(t)
         if m and (m.group(1) in ("найди", "загугли", "поиск", "погода", "погоду")):
             query = (m.group(2) or "").strip() or m.group(1)
+            answer = self._try_web_search(t, source)
+            if answer:
+                return RouteResult(
+                    reply=answer, action="web_search", source="search",
+                )
             return self._search(query, source)
 
         # --- 8. известные короткие ответы (правила — раньше LLM, ТЗ §2) ---
         quick = self._quick_reply(t, source)
         if quick is not None:
             return quick
+
+        # --- 8.5 веб-поиск и для прочих фраз (курс валют, «сколько стоит…») ---
+        search_answer = self._try_web_search(t, source)
+        if search_answer:
+            return RouteResult(
+                reply=search_answer, action="web_search", source="search",
+            )
 
         # --- 9. LLM (Ollama), фоллбэк — правила ---
         llm = self._try_llm_route(t, source)
@@ -415,6 +429,36 @@ class CommandRouter:
                 self._state.audit.add(source, action, detail=text)
                 return RouteResult(reply=answer, action=action, source="rules")
         return None
+
+    def _try_web_search(self, text: str, source: str) -> str:
+        """Быстрый ответ из интернета (погода/курс/факты).
+
+        Thread-safe: работает в собственном потоке с отдельным asyncio-loop,
+        чтобы не конфликтовать с запущенным в FastAPI loop.
+        Возвращает готовую фразу для TTS или "" (→ переходим к LLM).
+        """
+        try:
+            from jarvis.voice.web_search import maybe_web_search
+        except ImportError:
+            return ""
+
+        result_box: list[str] = [""]
+
+        def _run() -> None:
+            try:
+                answer = asyncio.run(maybe_web_search(text, timeout=1.8))
+                result_box[0] = answer or ""
+            except Exception:
+                log.debug("web_search: сбой для %r", text, exc_info=True)
+
+        t = threading.Thread(target=_run, name="web-search", daemon=True)
+        t.start()
+        t.join(timeout=2.2)
+        answer = result_box[0]
+        if answer:
+            self._state.audit.add(source, "web_search", detail=text[:120])
+            log.info("router: web_search → %s", answer[:100])
+        return answer
 
     def _fallback(self, text: str, source: str) -> RouteResult:
         quick = self._quick_reply(text, source)

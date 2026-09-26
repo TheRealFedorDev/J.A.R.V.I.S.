@@ -29,6 +29,8 @@ const el = {
   camFace: $("camFace"),
   camGesture: $("camGesture"),
   camCollapse: $("camCollapse"),
+  camHead: $("camHead"),
+  camResize: $("camResize"),
   skelCanvas: $("skelCanvas"),
   recenterTarget: $("recenterTarget"),
   btnCalibrate: $("btnCalibrate"),
@@ -55,6 +57,8 @@ const state = {
   pendingConfirm: null, // id
   statusOverride: null, // {state, text, until}
   lastPartialAt: 0,
+  finalHoldUntil: 0,    // игнор interim-частичек после финала
+  awaitingReply: false, // ждём ответа — не гасить плашку «ФРАЗА»
 };
 
 /* ═══════════ ТОСТ ═══════════ */
@@ -113,8 +117,8 @@ function sendCommand(text) {
   const t = (text || "").trim();
   if (!t) return;
   addMsg("user", t);
-  overrideStatus("do", "ВЫПОЛНЯЮ…", 2000);
-
+  overrideStatus("think", "ДУМАЮ…", 20000);
+  orbThinking();
   fetch("/api/command", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -127,16 +131,17 @@ function sendCommand(text) {
         el.confirmText.textContent = data.reply || t;
         el.confirmModal.hidden = false;
         addMsg("bot", data.reply);
+        orbIdle();
         return;
       }
       if (data.streaming) {
         // ответ придёт чанками по WS
         state.streaming = addMsg("bot", "", { streaming: true });
-        setStatus("think", "ДУМАЮ…");
         return;
       }
       if (data.reply) addMsg("bot", data.reply);
       if (data.ok === false) toast(data.reply || "Ошибка");
+      orbSpeaking();
     })
     .catch(() => addMsg("bot", "Сервер недоступен — переподключаюсь…"));
 }
@@ -157,6 +162,63 @@ function showLive(tag, text) {
   el.liveCaption.hidden = !text;
   el.liveTag.textContent = tag;
   el.liveText.textContent = text || "";
+}
+
+/* ═══════════ ИИ-ШАРИК (orb-ui, controlled) ═══════════ */
+let _orbIdleTimer = null;
+const _orbStateMap = {
+  idle: "idle",
+  thinking: "thinking",
+  listening: "listening",
+  speaking: "speaking",
+  connecting: "connecting",
+  error: "error",
+};
+
+const _pipelineEl = $("pipelineBar");
+
+function _setPipeline(state) {
+  if (!_pipelineEl) return;
+  _pipelineEl.hidden = state === "idle";
+  const steps = _pipelineEl.querySelectorAll(".pipe-step");
+  steps.forEach((s) => {
+    s.classList.remove("active", "done");
+    const step = s.dataset.step;
+    if (state === "listening" && step === "stt") {
+      s.classList.add("active");
+    } else if (state === "thinking") {
+      if (step === "stt") s.classList.add("done");
+      if (step === "search" || step === "llm") s.classList.add("active");
+    } else if (state === "speaking") {
+      if (step === "search" || step === "llm") s.classList.add("done");
+      if (step === "tts") s.classList.add("active");
+    }
+  });
+}
+
+function updateOrb(state, { inputVolume = 0, outputVolume = 0 } = {}) {
+  document.body.dataset.orbState = state;
+  _setPipeline(state);
+  if (typeof window.__BertaOrb?.set === "function") {
+    window.__BertaOrb.set({ state, inputVolume, outputVolume });
+  }
+}
+function orbListening() { updateOrb("listening", { inputVolume: 0.3 }); }
+function orbThinking()   { updateOrb("thinking"); }
+function orbSpeaking()   {
+  updateOrb("speaking", { outputVolume: 0.7 });
+  clearTimeout(_orbIdleTimer);
+  _orbIdleTimer = setTimeout(() => updateOrb("idle"), 5000);
+}
+function orbIdle()      { updateOrb("idle"); }
+
+function updateOrbState(stateName, opts = {}) {
+  const mapped = _orbStateMap[stateName] || "idle";
+  updateOrb(mapped, opts);
+  clearTimeout(_orbIdleTimer);
+  _orbIdleTimer = setTimeout(() => {
+    updateOrb("idle");
+  }, 8000);
 }
 
 /* ═══════════ АУДИТ ═══════════ */
@@ -294,9 +356,155 @@ el.camImg.addEventListener("error", () => {
   }, 2000);
 });
 
-el.camCollapse.addEventListener("click", () => {
+el.camCollapse.addEventListener("click", (e) => {
+  e.stopPropagation();
   el.camDock.classList.toggle("collapsed");
   el.camCollapse.textContent = el.camDock.classList.contains("collapsed") ? "+" : "–";
+});
+
+/* ═══════════ КАМЕРА: DRAG + RESIZE (в рамках viewport) ═══════════ */
+const CAM_MIN_W = 300;
+const CAM_MIN_H = 240;
+const CAM_MARGIN = 8;
+
+function loadCamRect() {
+  try {
+    const raw = localStorage.getItem("berta-cam-rect");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCamRect(rect) {
+  try {
+    localStorage.setItem("berta-cam-rect", JSON.stringify(rect));
+  } catch { /* приватный режим */ }
+}
+
+function applyCamRect(rect, persist) {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const w = Math.min(Math.max(rect.w, CAM_MIN_W), vw - CAM_MARGIN * 2);
+  const h = Math.min(Math.max(rect.h, CAM_MIN_H), vh - CAM_MARGIN * 2);
+  const left = Math.min(Math.max(rect.x, CAM_MARGIN), vw - w - CAM_MARGIN);
+  const top = Math.min(Math.max(rect.y, CAM_MARGIN), vh - h - CAM_MARGIN);
+  const out = { x: left, y: top, w, h };
+  el.camDock.classList.add("custom-pos");
+  el.camDock.style.left = `${left}px`;
+  el.camDock.style.top = `${top}px`;
+  el.camDock.style.bottom = "auto";
+  el.camDock.style.right = "auto";
+  el.camDock.style.width = `${w}px`;
+  el.camDock.style.height = `${h}px`;
+  if (persist) saveCamRect(out);
+  return out;
+}
+
+(function initCamRect() {
+  const rect = loadCamRect();
+  if (rect && Number.isFinite(rect.x) && Number.isFinite(rect.y)
+      && Number.isFinite(rect.w) && Number.isFinite(rect.h)) {
+    applyCamRect(rect, false);
+  }
+})();
+
+/* --- drag за шапку --- */
+let camDrag = null;
+el.camHead.addEventListener("pointerdown", (e) => {
+  if (e.target.closest("button")) return;
+  if (e.button !== 0) return;
+  const r = el.camDock.getBoundingClientRect();
+  camDrag = {
+    id: e.pointerId,
+    ox: e.clientX - r.left,
+    oy: e.clientY - r.top,
+  };
+  el.camHead.setPointerCapture(e.pointerId);
+  el.camDock.classList.add("dragging");
+  e.preventDefault();
+});
+el.camHead.addEventListener("pointermove", (e) => {
+  if (!camDrag || camDrag.id !== e.pointerId) return;
+  applyCamRect(
+    {
+      x: e.clientX - camDrag.ox,
+      y: e.clientY - camDrag.oy,
+      w: el.camDock.offsetWidth,
+      h: el.camDock.offsetHeight,
+    },
+    false,
+  );
+});
+function endCamDrag(e) {
+  if (!camDrag || camDrag.id !== e.pointerId) return;
+  camDrag = null;
+  el.camDock.classList.remove("dragging");
+  saveCamRect({
+    x: el.camDock.offsetLeft,
+    y: el.camDock.offsetTop,
+    w: el.camDock.offsetWidth,
+    h: el.camDock.offsetHeight,
+  });
+}
+el.camHead.addEventListener("pointerup", endCamDrag);
+el.camHead.addEventListener("pointercancel", endCamDrag);
+
+/* --- resize за угол --- */
+let camResize = null;
+el.camResize.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  e.preventDefault();
+  const r = el.camDock.getBoundingClientRect();
+  camResize = {
+    id: e.pointerId,
+    sx: e.clientX,
+    sy: e.clientY,
+    w: r.width,
+    h: r.height,
+  };
+  el.camResize.setPointerCapture(e.pointerId);
+  el.camDock.classList.add("resizing");
+});
+el.camResize.addEventListener("pointermove", (e) => {
+  if (!camResize || camResize.id !== e.pointerId) return;
+  applyCamRect(
+    {
+      x: el.camDock.offsetLeft,
+      y: el.camDock.offsetTop,
+      w: camResize.w + (e.clientX - camResize.sx),
+      h: camResize.h + (e.clientY - camResize.sy),
+    },
+    false,
+  );
+});
+function endCamResize(e) {
+  if (!camResize || camResize.id !== e.pointerId) return;
+  camResize = null;
+  el.camDock.classList.remove("resizing");
+  saveCamRect({
+    x: el.camDock.offsetLeft,
+    y: el.camDock.offsetTop,
+    w: el.camDock.offsetWidth,
+    h: el.camDock.offsetHeight,
+  });
+}
+el.camResize.addEventListener("pointerup", endCamResize);
+el.camResize.addEventListener("pointercancel", endCamResize);
+
+/* clamp при смене размера окна */
+window.addEventListener("resize", () => {
+  if (!el.camDock.classList.contains("custom-pos")) return;
+  applyCamRect(
+    {
+      x: el.camDock.offsetLeft,
+      y: el.camDock.offsetTop,
+      w: el.camDock.offsetWidth,
+      h: el.camDock.offsetHeight,
+    },
+    true,
+  );
 });
 
 /* ═══════════ КНОПКИ КАМЕРЫ ═══════════ */
@@ -436,6 +644,12 @@ function routeWS(msg) {
         showLive(d.voice_partial.final ? "ФРАЗА" : "СЛУШАЮ", d.voice_partial.text);
         state.lastPartialAt = Date.now();
       }
+      if (d.tts_enabled && d.last_command && d.last_command.text) {
+        // ранее озвученный ответ — сигнал "speaking" для икона
+        updateOrb("speaking", { outputVolume: 0.3 });
+        clearTimeout(_orbIdleTimer);
+        _orbIdleTimer = setTimeout(() => updateOrb("idle"), 8000);
+      }
       break;
 
     case "tracker_status":
@@ -458,18 +672,31 @@ function routeWS(msg) {
       break;
 
     case "voice_partial":
+      // поздний interim после финала не должен перетирать «ФРАЗА»
+      if (!d.final && state.finalHoldUntil && Date.now() < state.finalHoldUntil) {
+        break;
+      }
       state.lastPartialAt = Date.now();
       showLive(d.final ? "ФРАЗА" : "СЛУШАЮ", d.text);
       if (d.final) {
-        setStatus("do", "РАСПОЗНАНО");
-        setTimeout(() => refreshBaseStatus(), 1800);
+        state.finalHoldUntil = Date.now() + 4000;
+        state.awaitingReply = true;
+        overrideStatus("think", "ДУМАЮ…", 20000);
+        orbThinking();
       } else {
         setStatus("listen", "СЛУШАЮ…");
+        orbListening();
       }
       break;
 
     case "voice_command":
       if (d.action) overrideStatus("do", `ВЫПОЛНЯЮ: ${d.action}`, 2200);
+      // команда — ответа не ждём, плашку можно снять
+      state.awaitingReply = false;
+      state.finalHoldUntil = 0;
+      showLive("", "");
+      state.lastPartialAt = 0;
+      orbIdle();
       break;
 
     case "pointer_status":
@@ -507,12 +734,14 @@ function routeWS(msg) {
     case "router_start":
       state.streaming = addMsg("bot", "", { streaming: true });
       setStatus("think", "ДУМАЮ…");
+      orbThinking();
       break;
 
     case "llm_chunk":
       if (!state.streaming) state.streaming = addMsg("bot", "", { streaming: true });
       state.streaming.textContent += d.chunk;
       el.log.scrollTop = el.log.scrollHeight;
+      orbSpeaking();
       break;
 
     case "router_end":
@@ -521,16 +750,36 @@ function routeWS(msg) {
         state.streaming.parentElement.classList.remove("streaming");
       }
       state.streaming = null;
+      state.awaitingReply = false;
+      state.finalHoldUntil = 0;
+      showLive("", "");
+      state.lastPartialAt = 0;
       refreshBaseStatus();
+      orbSpeaking();
       break;
 
-    case "router":
+    case "voice_user":
+      if (d.text) addMsg("user", d.text);
+      break;
+
+     case "router":
       if (d.reply) addMsg("bot", d.reply);
+      // ответ пришёл — убрать плашку и статус ожидания
+      state.awaitingReply = false;
+      state.finalHoldUntil = 0;
+      showLive("", "");
+      state.lastPartialAt = 0;
+      refreshBaseStatus();
+      orbSpeaking();
       if (d.needs_confirm) {
         state.pendingConfirm = d.confirm_id;
         el.confirmText.textContent = d.reply;
         el.confirmModal.hidden = false;
       }
+      break;
+
+    case "orb_state":
+      updateOrbState(d.state, {});
       break;
 
     case "mic":
@@ -551,12 +800,16 @@ function handleGaze(d) {
   el.camFace.classList.toggle("off", !face && !d.blink);
 }
 
-/* подпись «СЛУШАЮ» гаснет, если partial давно не приходил */
+/* подпись гаснет, если partial давно не приходил;
+   финальная «ФРАЗА» держится дольше, пока ждём ответа */
 setInterval(() => {
-  if (state.lastPartialAt && Date.now() - state.lastPartialAt > 2500) {
+  if (!state.lastPartialAt) return;
+  const age = Date.now() - state.lastPartialAt;
+  const limit = state.awaitingReply ? 20000 : 2500;
+  if (age > limit) {
     showLive("", "");
     state.lastPartialAt = 0;
-    refreshBaseStatus();
+    if (!state.awaitingReply) refreshBaseStatus();
   }
 }, 600);
 
