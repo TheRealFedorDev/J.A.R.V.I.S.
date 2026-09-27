@@ -15,6 +15,7 @@ from typing import Any
 
 from jarvis.core.config import AppConfig
 from jarvis.core.events import (
+    BotReplyEvent,
     CameraFrameEvent,
     EventBus,
     GazeSample,
@@ -24,6 +25,7 @@ from jarvis.core.events import (
     TrackerStatusEvent,
     VoiceCommandEvent,
     VoicePartialEvent,
+    VoiceStateEvent,
 )
 
 log = logging.getLogger("jarvis.web")
@@ -31,6 +33,35 @@ log = logging.getLogger("jarvis.web")
 _THROTTLE = {"gaze": 0.08, "hand": 0.10}   # мин. интервал пересылки, с
 _AUDIT_MAX = 300
 _PENDING_TTL = 120.0                        # жизнь confirm-запроса, с
+
+
+def _py(value):
+    """numpy/скаляр → чистый Python-тип (np.bool_ не сериализуется в JSON)."""
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_py(v) for v in value]
+    try:
+        import numpy as np
+
+        if isinstance(value, np.bool_):
+            return bool(value)
+        if isinstance(value, np.integer):
+            return int(value)
+        if isinstance(value, np.floating):
+            return float(value)
+        if isinstance(value, np.ndarray):
+            return _py(value.tolist())
+    except ImportError:
+        pass
+    if isinstance(value, (int, float)):
+        return value
+    return str(value)
+
+
+def json_default(obj):
+    """default= для json.dumps — гасит numpy-типы из eyetrax/mediapipe."""
+    return _py(obj)
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +292,8 @@ class AppState:
         bus.subscribe(HandSample, self._on_hand)
         bus.subscribe(VoicePartialEvent, self._on_voice_partial)
         bus.subscribe(VoiceCommandEvent, self._on_voice_command)
+        bus.subscribe(BotReplyEvent, self._on_bot_reply)
+        bus.subscribe(VoiceStateEvent, self._on_voice_state)
         bus.subscribe(RecenteringEvent, self._on_recentering)
         bus.subscribe(CameraFrameEvent, self._on_camera)
 
@@ -279,7 +312,9 @@ class AppState:
 
     def _on_gaze(self, e: GazeSample) -> None:
         self.gaze = {
-            "x": e.x, "y": e.y, "face": e.face, "blink": e.blink, "noise": e.noise,
+            "x": _py(e.x), "y": _py(e.y),
+            "face": bool(e.face), "blink": bool(e.blink),
+            "noise": _py(e.noise),
         }
         self.bcast.push("gaze", self.gaze, throttle_key="gaze")
 
@@ -290,9 +325,10 @@ class AppState:
         # лендмарки тяжелее — реже (front рисует скелет ~10 FPS)
         lms = e.landmarks
         self.hand = {
-            "x": e.x, "y": e.y, "pinch": e.pinch, "gesture": gesture,
-            "landmarks": [list(p) for p in lms] if lms else None,
-            "confidence": e.confidence,
+            "x": _py(e.x), "y": _py(e.y), "pinch": _py(e.pinch),
+            "gesture": gesture,
+            "landmarks": [[float(px), float(py)] for px, py in lms] if lms else None,
+            "confidence": float(e.confidence or 0.0),
         }
         self.bcast.push("hand", self.hand, throttle_key="hand")
 
@@ -312,8 +348,30 @@ class AppState:
             # фраза без известной команды — пробуем роутер (LLM/правила)
             self._route_from_voice(e.text)
 
+    def _on_bot_reply(self, e: BotReplyEvent) -> None:
+        """Ответ Berta (веб-поиск / LLM) → реплики в чате панели."""
+        if e.query:
+            self.bcast.push("voice_user", {"text": e.query})
+        if e.text:
+            # дублируем в консоль: иначе голосовой ответ слышен, но не виден
+            log.info("Berta (%s): %s", e.source or "llm", e.text)
+            self.bcast.push("router", {
+                "text": e.query, "reply": e.text, "source": e.source,
+                "needs_confirm": False, "confirm_id": None,
+            })
+
+    def _on_voice_state(self, e: VoiceStateEvent) -> None:
+        """Состояние голосового агента (LiveKit) → Orb в браузере."""
+        self.bcast.push("orb_state", {"state": e.state})
+
     def _route_from_voice(self, text: str) -> None:
-        """НЕ-командная фраза из голоса → CommandRouter (в отдельном потоке)."""
+        """Голос → WebSearch/LLM → TTS (STT → ответ → озвучка).
+
+        Конвейер в отдельном потоке (не блокирует STT):
+          1. router.handle() → web search / быстрые правила / LLM-streaming
+          2. ответ → TTS (speak_sync) + orb speaking
+          3. orb → idle
+        """
         import threading as _t
 
         def _run() -> None:
@@ -323,16 +381,56 @@ class AppState:
                 router = getattr(self, "router", None)
                 if router is None:
                     return
+
+                # орб: думает
+                self.bcast.push("orb_state", {"state": "thinking"})
+
                 result = router.handle(text, source="voice")
-                if result.reply and self.tts is not None and self.tts_enabled:
-                    self.tts.speak(result.reply)
-                self.bcast.push("router", {
-                    "text": text, "reply": result.reply, "source": result.source,
-                    "needs_confirm": result.needs_confirm,
-                    "confirm_id": result.confirm_id,
-                })
+
+                # --- быстрый ответ: веб-поиск / правила / fallback ---
+                if result.reply and not (result.stream and result.source == "llm"):
+                    log.info("Berta (%s): %s", result.source, result.reply)
+                    self.bcast.push("router", {
+                        "text": text, "reply": result.reply,
+                        "source": result.source,
+                        "needs_confirm": result.needs_confirm,
+                        "confirm_id": result.confirm_id,
+                    })
+                    if self.tts is not None and self.tts_enabled:
+                        self.bcast.push("orb_state", {"state": "speaking"})
+                        # speak_sync дожидается конца озвучки → orb не гаснет прежде
+                        self.tts.speak_sync(result.reply, timeout=30)
+
+                # --- стриминг LLM: чанки → чат → TTS ---
+                elif result.stream and result.source == "llm":
+                    self.bcast.push("router_start", {"text": text})
+
+                    def _on_chunk(chunk: str) -> None:
+                        self.bcast.push("llm_chunk", {"chunk": chunk})
+                        self.bcast.push("orb_state", {"state": "speaking"})
+
+                    full = router.stream_llm(text, "voice", _on_chunk)
+                    self.bcast.push("router_end", {
+                        "text": text, "reply": full, "source": "llm",
+                    })
+                    if full:
+                        log.info("Berta (llm): %s", full)
+                    if self.tts is not None and self.tts_enabled and full:
+                        self.bcast.push("orb_state", {"state": "speaking"})
+                        self.tts.speak_sync(full, timeout=30)
+
+                # --- fallback без ответа (confirm и т.п.) ---
+                else:
+                    self.bcast.push("router", {
+                        "text": text, "reply": result.reply,
+                        "source": result.source,
+                        "needs_confirm": result.needs_confirm,
+                        "confirm_id": result.confirm_id,
+                    })
             except Exception:
                 log.exception("роутер (голос) упал")
+            finally:
+                self.bcast.push("orb_state", {"state": "idle"})
 
         _t.Thread(target=_run, name="web-router-voice", daemon=True).start()
 

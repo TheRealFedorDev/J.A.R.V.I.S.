@@ -17,6 +17,13 @@ log = logging.getLogger("jarvis.web")
 _STATIC = Path(__file__).resolve().parent / "static"
 
 
+def _dumps(obj) -> str:
+    """JSON с фоллбэком на numpy-типы (np.bool_ из eyetrax и т.п.)."""
+    from jarvis.web.state import json_default
+
+    return json.dumps(obj, ensure_ascii=False, default=json_default)
+
+
 # ---------------------------------------------------------------------------
 # Модели запросов
 # ---------------------------------------------------------------------------
@@ -79,15 +86,12 @@ def create_app(state) -> FastAPI:
         q: asyncio.Queue = asyncio.Queue(maxsize=256)
         state.bcast.add(q)
         try:
-            await websocket.send_text(json.dumps(
+            await websocket.send_text(_dumps(
                 {"type": "snapshot", "data": state.snapshot()},
-                ensure_ascii=False,
             ))
             while True:
                 msg = await q.get()
-                await websocket.send_text(
-                    json.dumps(msg, ensure_ascii=False)
-                )
+                await websocket.send_text(_dumps(msg))
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
@@ -169,9 +173,6 @@ def create_app(state) -> FastAPI:
         return {"current": profile.id, "title": profile.title,
                 "assist": profile.assist}
 
-    # ------------------------------------------------------------------
-    # Команды и подтверждения
-    # ------------------------------------------------------------------
     @app.post("/api/command")
     async def command(body: CommandIn) -> dict:
         text = body.text.strip()
@@ -200,14 +201,27 @@ def create_app(state) -> FastAPI:
                 state.bcast.push("router_end", {
                     "text": payload["text"], "reply": full, "source": "llm",
                 })
+                # озвучка ответа после стрима
+                if state.tts is not None and state.tts_enabled and full:
+                    state.bcast.push("orb_state", {"state": "speaking"})
+                    state.tts.speak_sync(full, timeout=30)
 
             loop.run_in_executor(None, _run)
             return {"ok": True, "source": "llm", "streaming": True,
                     "reply": "", "needs_confirm": False}
 
+        # немедленный ответ (правила / веб-поиск / fallback) + озвучка
+        reply = result.reply
+        if reply and state.tts is not None and state.tts_enabled:
+            loop = asyncio.get_running_loop()
+            def _speak() -> None:
+                state.bcast.push("orb_state", {"state": "speaking"})
+                state.tts.speak_sync(reply, timeout=30)
+            loop.run_in_executor(None, _speak)
+
         return {
             "ok": True,
-            "reply": result.reply,
+            "reply": reply,
             "action": result.action,
             "source": result.source,
             "needs_confirm": result.needs_confirm,

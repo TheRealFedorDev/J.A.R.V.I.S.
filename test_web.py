@@ -112,6 +112,31 @@ def test_snapshot_shape(state):
     assert {p["id"] for p in snap["profiles"]} == {"home", "assist", "study"}
 
 
+def test_snapshot_json_serializable_with_numpy(state):
+    """np.bool_/np.float64 из eyetrax не должны ронять WS (json.dumps)."""
+    import json
+
+    import numpy as np
+
+    from jarvis.core.events import GazeSample, HandSample
+    from jarvis.web.server import _dumps
+
+    # blink как numpy.bool_ — раньше падал: "Object of type bool is not JSON serializable"
+    state.bus.publish(GazeSample(
+        x=np.float64(100.5), y=np.float64(200.5),
+        face=np.True_, blink=np.False_, noise=np.float64(3.2),
+    ))
+    state.bus.publish(HandSample(
+        x=np.float32(0.5), y=np.float32(0.5), pinch=np.float32(0.6),
+        confidence=np.float32(1.0), hand_count=1,
+        landmarks=((0.1, 0.2), (0.3, 0.4)),
+    ))
+    text = _dumps({"type": "snapshot", "data": state.snapshot()})
+    assert json.loads(text)["type"] == "snapshot"
+    # и отдельное gaze-сообщение
+    assert json.loads(_dumps({"type": "gaze", "data": state.gaze}))["data"]["blink"] is False
+
+
 def test_pending_confirm_lifecycle(state):
     cid = state.add_pending({"text": "удали всё", "_exec": lambda: "done"})
     got = state.pop_pending(cid)
@@ -211,11 +236,13 @@ def test_index_html(client):
     assert r.status_code == 200
     assert "BERTA" in r.text
     assert "cam-dock" in r.text
+    assert "orb.js" in r.text
 
 
 def test_static_css_js(client):
     assert client.get("/static/style.css").status_code == 200
     assert client.get("/static/app.js").status_code == 200
+    assert client.get("/static/orb.js").status_code == 200
 
 
 def test_health_and_status(client):

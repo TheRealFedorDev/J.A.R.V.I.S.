@@ -98,9 +98,9 @@ class GazeSample:
 class VoicePartialEvent:
     """Частично распознанная речь — стриминг, пока человек ещё говорит.
 
-    Публикуется на лету (vosk partial result), чтобы UI показывал текст
-    до завершения фразы. `final=True` — фраза завершена (дублирует текст
-    финального результата, затем публикуется VoiceCommandEvent).
+    Публикуется на лету (rolling partial faster-whisper / vosk), чтобы UI
+    показывал текст до завершения фразы. `final=True` — фраза завершена
+    (дублирует текст финального результата, затем публикуется VoiceCommandEvent).
     """
 
     text: str = ""
@@ -110,11 +110,33 @@ class VoicePartialEvent:
 
 @dataclass(frozen=True)
 class VoiceCommandEvent:
-    """Распознанная голосовая команда (аудио-loop → vosk → шина)."""
+    """Распознанная голосовая команда (аудио-loop → STT → шина)."""
 
     action: str | None          # click | double_click | right_click | scroll | enable | disable | calibrate | None
     args: dict = field(default_factory=dict)
     text: str = ""              # распознанная фраза (для статуса/оверлея)
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True)
+class VoiceStateEvent:
+    """Состояние голосового агента для Orb/UI.
+
+    LiveKit-агент живёт в отдельном процессе и шлёт состояние маркером в
+    stdout; `LiveKitVoiceService` разбирает его и публикует это событие.
+    """
+
+    state: str                     # initializing|idle|listening|thinking|speaking
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True)
+class BotReplyEvent:
+    """Готовый ответ ассистента (поиск/LLM) → чат web-панели."""
+
+    text: str = ""
+    query: str = ""             # реплика пользователя (для bubble «Ф»)
+    source: str = "llm"         # search | llm | rules
     timestamp: float = field(default_factory=time.time)
 
 

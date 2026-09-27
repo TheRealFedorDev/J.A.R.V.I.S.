@@ -17,14 +17,19 @@ PyQt6
 edge-tts>=7.0          # синтез: стрим mp3-чанков (neural голоса EN/RU)
 sounddevice>=0.5       # playback (callback PortAudio) + захват микрофона
 av>=12.0               # инкрементальный декод mp3 → PCM
-vosk>=0.3.45           # офлайн-распознавание (partial-результаты на лету)
+faster-whisper>=1.2    # STT large-v3: стриминг + partial (по умолчанию)
+vosk>=0.3.45           # офлайн-STT фоллбэк (VOICE_ASR=vosk)
 pyttsx3                # офлайн-фоллбэк TTS (SAPI5)
 
 # --- Web-панель Berta (по умолчанию python main.py) ---
 fastapi>=0.110         # HTTP/WS API панели
 uvicorn>=0.27          # ASGI-сервер
 websockets>=12         # realtime-события шины → браузер
-ollama>=0.4            # локальная LLM (Qwen2.5) с фоллбэком на правила
+ollama>=0.4            # локальная LLM (llama3.2 / mistral) с фоллбэком на правила
+
+# --- Pipecat: разговорный контур VOICE_AGENT=pipecat (STT→LLM→TTS, barge-in) ---
+pipecat-ai[local,whisper]>=1.11  # Silero VAD + Ollama + faster-whisper + PyAudio
+httpx>=0.27               # быстрый веб-поиск (DDG/Wikipedia/open-meteo)
 
 # --- EyeTrax (локальная библиотека из libs/) ---
 # Установка: pip install --no-deps ./libs/EyeTrax-master/EyeTrax-master

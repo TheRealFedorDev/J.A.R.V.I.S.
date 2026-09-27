@@ -57,14 +57,39 @@ def build_core():
     # Голос: «клик», «двойной», «право», «скролл», «калибровка», «включи/выключи».
     voice = None
     if config.voice.enabled:
-        voice = VoiceService(config.voice, bus)
-        if not Path(config.voice.model_path).exists():
+        asr = (config.voice.asr or "faster-whisper").lower()
+        if asr == "vosk" and not Path(config.voice.model_path).exists():
             log.warning(
                 "модель vosk не найдена (%s) — голос отключён. Скачайте из "
                 "https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip",
                 config.voice.model_path,
             )
-            voice = None
+        else:
+            agent = (config.voice.agent or "legacy").lower()
+            if agent == "livekit":
+                try:
+                    from jarvis.voice.livekit_service import LiveKitVoiceService
+
+                    voice = LiveKitVoiceService(config.voice, bus)
+                    log.info("голос: LiveKit-агент (STT→LLM→TTS, barge-in)")
+                except Exception as exc:
+                    log.warning(
+                        "LiveKit-агент недоступен (%s) — fallback на VoiceService", exc
+                    )
+                    voice = VoiceService(config.voice, bus)
+            elif agent == "pipecat":
+                try:
+                    from jarvis.voice.pipecat_agent import PipecatVoiceService
+
+                    voice = PipecatVoiceService(config.voice, bus)
+                    log.info("голос: pipecat-агент (STT→LLM→TTS)")
+                except Exception as exc:
+                    log.warning(
+                        "pipecat недоступен (%s) — fallback на VoiceService", exc
+                    )
+                    voice = VoiceService(config.voice, bus)
+            else:
+                voice = VoiceService(config.voice, bus)
     if voice is not None:
         bus.subscribe(
             VoiceCommandEvent,
