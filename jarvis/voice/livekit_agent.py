@@ -145,6 +145,18 @@ async def entrypoint(ctx: JobContext) -> None:
         tools=[current_time, web_search] if WEB_SEARCH_ENABLED else [current_time],
     )
 
+    # Orb/web живут в основном процессе, агент — в отдельном, поэтому состояние
+    # передаём маркером в stdout; его разбирает LiveKitVoiceService.
+    @session.on("agent_state_changed")
+    def _on_state_changed(event) -> None:
+        print(f"[[ORB]]{event.new_state}", flush=True)
+
+    @session.on("user_input_transcribed")
+    def _on_user_speech(event) -> None:
+        text = (event.transcript or "").strip()
+        if text:
+            print(f"[[SAID]]{text}", flush=True)
+
     await session.start(agent=agent, room=ctx.room)
     await session.generate_reply(instructions="Поздоровайся и спроси, чем помочь.")
 

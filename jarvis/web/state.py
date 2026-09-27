@@ -25,6 +25,7 @@ from jarvis.core.events import (
     TrackerStatusEvent,
     VoiceCommandEvent,
     VoicePartialEvent,
+    VoiceStateEvent,
 )
 
 log = logging.getLogger("jarvis.web")
@@ -292,6 +293,7 @@ class AppState:
         bus.subscribe(VoicePartialEvent, self._on_voice_partial)
         bus.subscribe(VoiceCommandEvent, self._on_voice_command)
         bus.subscribe(BotReplyEvent, self._on_bot_reply)
+        bus.subscribe(VoiceStateEvent, self._on_voice_state)
         bus.subscribe(RecenteringEvent, self._on_recentering)
         bus.subscribe(CameraFrameEvent, self._on_camera)
 
@@ -357,6 +359,10 @@ class AppState:
                 "text": e.query, "reply": e.text, "source": e.source,
                 "needs_confirm": False, "confirm_id": None,
             })
+
+    def _on_voice_state(self, e: VoiceStateEvent) -> None:
+        """Состояние голосового агента (LiveKit) → Orb в браузере."""
+        self.bcast.push("orb_state", {"state": e.state})
 
     def _route_from_voice(self, text: str) -> None:
         """Голос → WebSearch/LLM → TTS (STT → ответ → озвучка).

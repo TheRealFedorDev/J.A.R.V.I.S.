@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -25,7 +26,12 @@ from pathlib import Path
 from typing import IO, Any
 
 from jarvis.core.config import VoiceConfig
-from jarvis.core.events import EventBus
+from jarvis.core.events import (
+    BotReplyEvent,
+    EventBus,
+    VoicePartialEvent,
+    VoiceStateEvent,
+)
 from jarvis.core.service import BaseService
 
 log = logging.getLogger("jarvis.voice.livekit")
@@ -175,10 +181,54 @@ class LiveKitVoiceService(BaseService):
         def reader() -> None:
             for raw in iter(stream.readline, b""):
                 line = raw.decode("utf-8", "replace").rstrip()
-                if line:
-                    log.info("[%s] %s", prefix, line)
+                if not line:
+                    continue
+                # Агент и voice API не знают про нашу шину: состояние и реплики
+                # приходят маркерами/логами, разбираем их здесь.
+                if line.startswith("[[ORB]]"):
+                    self._publish_state(line[7:].strip())
+                    continue
+                if line.startswith("[[SAID]]"):
+                    self._publish_speech(line[7:].strip())
+                    continue
+                if prefix == "voice-api":
+                    self._publish_from_shim(line)
+                    continue
+                log.info("[%s] %s", prefix, line)
 
         threading.Thread(target=reader, name=f"{prefix}-log", daemon=True).start()
+
+    def _publish_state(self, state: str) -> None:
+        if state not in ("idle", "listening", "thinking", "speaking", "initializing"):
+            return
+        log.info("голос: состояние агента -> %s", state)
+        self._bus.publish(VoiceStateEvent(state=state))
+
+    def _publish_speech(self, text: str) -> None:
+        if not text:
+            return
+        self._bus.publish(VoicePartialEvent(text=text, final=True))
+
+    _STT_RE = re.compile(r"STT \([^)]*\):\s*(.*)$")
+    _TTS_RE = re.compile(r"TTS \([^)]*\):\s*(.*)$")
+
+    def _publish_from_shim(self, line: str) -> None:
+        """Реплики из логов voice API: STT → речь пользователя, TTS → ответ."""
+        match = self._STT_RE.search(line)
+        if match:
+            text = match.group(1).strip()
+            if text and text != "<пусто>":
+                self._publish_speech(text)
+            return
+        match = self._TTS_RE.search(line)
+        if match:
+            text = match.group(1).strip()
+            # Первый TTS-запрос LiveKit иногда несёт служебное слово-заглушку
+            # ("assistant") — в чате это лишняя реплика.
+            if text and text.lower() not in ("assistant", "<пусто>"):
+                self._bus.publish(BotReplyEvent(text=text, source="llm"))
+            return
+        log.info("[voice-api] %s", line)
 
     def _wait_healthy(self, timeout: float) -> bool:
         deadline = time.monotonic() + timeout

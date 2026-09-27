@@ -119,6 +119,18 @@ class VoiceCommandEvent:
 
 
 @dataclass(frozen=True)
+class VoiceStateEvent:
+    """Состояние голосового агента для Orb/UI.
+
+    LiveKit-агент живёт в отдельном процессе и шлёт состояние маркером в
+    stdout; `LiveKitVoiceService` разбирает его и публикует это событие.
+    """
+
+    state: str                     # initializing|idle|listening|thinking|speaking
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass(frozen=True)
 class BotReplyEvent:
     """Готовый ответ ассистента (поиск/LLM) → чат web-панели."""
 
