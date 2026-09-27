@@ -104,13 +104,16 @@ async def web_search(context: RunContext, query: str) -> str:
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
-    # mode="vad" отключает AdaptiveInterruptionDetector: он ходит в облако
-    # LiveKit Inference, падает без API-ключа и блокирует loop на ~3 c.
-    # Прерывания и конец фразы определяет silero VAD — всё остаётся локальным.
-    turn_handling = {"interruption": {"mode": "vad"}}
+    # Полностью локальный контур, без обращений к облаку LiveKit Inference:
+    #  - turn_detection "vad"  -> silero определяет конец фразы пользователя;
+    #  - interruption mode "vad" -> отключает AdaptiveInterruptionDetector,
+    #    который ходит в облако и падает без API-ключа (~3 c блокировки loop).
+    turn_handling = {
+        "turn_detection": "vad",
+        "interruption": {"mode": "vad"},
+    }
 
     session = AgentSession(
-        turn_detection=None,
         turn_handling=turn_handling,
         vad=silero.VAD.load(min_silence_duration=MIN_SILENCE),
         stt=openai.STT(
@@ -124,6 +127,10 @@ async def entrypoint(ctx: JobContext) -> None:
             base_url=OLLAMA_URL,
             api_key="ollama",
             temperature=0.6,
+            # холодный старт Ollama + загрузка faster-whisper могут занять
+            # больше 10 c и обрывать первый ответ; даём запас + ретраи
+            timeout=float(os.environ.get("LLM_TIMEOUT", "60")),
+            max_retries=3,
         ),
         tts=openai.TTS(
             model="tts-1",

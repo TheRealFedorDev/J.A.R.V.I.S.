@@ -207,8 +207,11 @@ class LiveKitVoiceService(BaseService):
     # ------------------------------------------------------------------
     def stop(self) -> None:
         log.info("голос: останавливаю агента LiveKit")
-        self._shutdown_children()
+        # Сначала флаг остановки + join потока: иначе цикл успевает увидеть
+        # убитого агента и залогировать "перезапуск" уже во время shutdown.
         super().stop()
+        self._shutdown_children()
+        log.info("голос: агент LiveKit остановлен")
 
     def _shutdown_children(self) -> None:
         for proc in (self._agent, self._shim):

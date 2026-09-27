@@ -5,6 +5,15 @@ chcp 65001 >nul
 set PYTHONIOENCODING=utf-8
 
 echo.
+if not exist "%~dp0.venv-livekit\Scripts\python.exe" (
+  echo   НЕТ окружения .venv-livekit. Создайте его:
+  echo     py -3.11 -m venv .venv-livekit
+  echo     .venv-livekit\Scripts\python.exe -m pip install -r requirements-livekit.txt
+  echo.
+  pause
+  exit /b 1
+)
+
 echo   [1/2] Локальный voice API: faster-whisper + edge-tts (127.0.0.1:8077)
 start "Berta voice API" /min "%~dp0.venv\Scripts\python.exe" -m jarvis.voice.local_voice_api
 

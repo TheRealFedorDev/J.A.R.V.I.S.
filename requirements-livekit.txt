@@ -1,0 +1,14 @@
+# Окружение LiveKit Agents для jarvis/voice/livekit_agent.py
+#
+# Живёт отдельно от основного .venv: main venv — Python 3.13, а стек
+# LiveKit/silero/onnxruntime собран под 3.11 и не смешивается с ним.
+#
+# Создание (Windows, PowerShell):
+#   py -3.11 -m venv .venv-livekit
+#   .venv-livekit\Scripts\python.exe -m pip install -r requirements-livekit.txt
+#
+# Затем в .env: VOICE_AGENT=livekit
+
+livekit-agents[openai,silero]==1.8.3
+sounddevice==0.5.6
+certifi==2026.7.22
