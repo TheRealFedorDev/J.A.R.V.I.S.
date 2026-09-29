@@ -1,0 +1,732 @@
+/* ============================================================================
+   BERTA · HUD SKIN
+   Слой оформления поверх style.css. Загружается ПОСЛЕ него и перекрашивает
+   существующую разметку, НЕ меняя геометрию раскладки: чат, камера, аудит,
+   аварийная кнопка и органы управления продолжают работать как раньше.
+
+   Принципы:
+   — углы скобками (L-скобки), а не клиппайфом: не срезает границы и не ломает
+     backdrop-filter у скроллящихся панелей;
+   — состояние агента приходит из CSS через body[data-orb-state], который уже
+     ставит updateOrb() в app.js — ни одной правки JS не требуется;
+   — оформление декоративное, поэтому режимы доступности из style.css
+     (data-contrast="high", prefers-reduced-motion) его отключают;
+   — только системные шрифты: проект должен работать без интернета.
+   ========================================================================== */
+
+:root {
+  --hud-bg: #04070d;
+  --hud-panel: rgba(7, 16, 27, 0.72);
+  --hud-panel-solid: #070f1a;
+  --hud-stroke: rgba(95, 227, 255, 0.2);
+  --hud-stroke-hot: rgba(95, 227, 255, 0.5);
+
+  --hud-cyan: #5fe3ff;
+  --hud-cyan-deep: #0aa9c8;
+  --hud-amber: #ffb545;
+  --hud-green: #39ffa0;
+  --hud-red: #ff4d6a;
+
+  --hud-text: #dff3ff;
+  --hud-muted: #7fa6c4;
+
+  /* акцент переопределяется состоянием агента ниже */
+  --hud-accent: var(--hud-cyan);
+  --hud-accent-glow: rgba(95, 227, 255, 0.35);
+  --hud-accent-soft: rgba(95, 227, 255, 0.12);
+
+  --hud-mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas,
+    "SF Mono", "Liberation Mono", monospace;
+  --hud-sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+
+  --hud-r: 3px;
+  --hud-tick: 9px;
+}
+
+/* ── Состояние агента → акцент ──────────────────────────────────────────── */
+body[data-orb-state="listening"] {
+  --hud-accent: var(--hud-green);
+  --hud-accent-glow: rgba(57, 255, 160, 0.35);
+  --hud-accent-soft: rgba(57, 255, 160, 0.12);
+}
+body[data-orb-state="thinking"] {
+  --hud-accent: var(--hud-amber);
+  --hud-accent-glow: rgba(255, 181, 69, 0.35);
+  --hud-accent-soft: rgba(255, 181, 69, 0.12);
+}
+body[data-orb-state="speaking"] {
+  --hud-accent: var(--hud-cyan);
+  --hud-accent-glow: rgba(95, 227, 255, 0.45);
+  --hud-accent-soft: rgba(95, 227, 255, 0.14);
+}
+body[data-orb-state="error"] {
+  --hud-accent: var(--hud-red);
+  --hud-accent-glow: rgba(255, 77, 106, 0.4);
+  --hud-accent-soft: rgba(255, 77, 106, 0.14);
+}
+
+/* ── Фон: сетка + виньетка + глубокая база ──────────────────────────────── */
+html,
+body {
+  background: var(--hud-bg);
+}
+
+body {
+  color: var(--hud-text);
+  background:
+    radial-gradient(1100px 620px at 50% -12%, rgba(10, 169, 200, 0.14), transparent 62%),
+    radial-gradient(760px 520px at 100% 108%, rgba(255, 181, 69, 0.06), transparent 58%),
+    linear-gradient(175deg, #04070d 0%, #050b14 55%, #03060b 100%);
+}
+
+/* ============================================================================
+   ДЕКОРАТИВНАЯ ОБОЛОЧКА: рамка со скобками, сетка, скан-линии, виньетка
+   ========================================================================== */
+.hud-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.hud-frame > i {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--hud-stroke-hot);
+}
+.hud-frame > i.c1 {
+  top: 10px;
+  left: 10px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.hud-frame > i.c2 {
+  top: 10px;
+  right: 10px;
+  border-left: 0;
+  border-bottom: 0;
+}
+.hud-frame > i.c3 {
+  bottom: 10px;
+  left: 10px;
+  border-right: 0;
+  border-top: 0;
+}
+.hud-frame > i.c4 {
+  bottom: 10px;
+  right: 10px;
+  border-left: 0;
+  border-top: 0;
+}
+
+/* техническая сетка */
+.hud-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(to right, rgba(95, 227, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(95, 227, 255, 0.045) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(120% 95% at 50% 40%, #000 35%, transparent 100%);
+}
+
+/* скан-линии */
+.hud-scan {
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0 2px,
+    rgba(0, 0, 0, 0.22) 2px 4px
+  );
+}
+
+/* бегущая полоса развёртки */
+.hud-scan::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 140px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(95, 227, 255, 0.05) 55%,
+    rgba(95, 227, 255, 0.09),
+    transparent
+  );
+  animation: hud-sweep 9s linear infinite;
+}
+@keyframes hud-sweep {
+  0% { transform: translateY(-160px); }
+  100% { transform: translateY(100vh); }
+}
+
+.hud-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    125% 100% at 50% 45%,
+    transparent 40%,
+    rgba(0, 0, 0, 0.55) 100%
+  );
+}
+
+/* ============================================================================
+   ПАНЕЛИ: скобки по углам + тонкая обводка
+   ========================================================================== */
+.topbar,
+.console,
+.audit-panel,
+.cam-dock,
+.status-pill,
+.pipeline {
+  border-radius: var(--hud-r) !important;
+  border: 1px solid var(--hud-stroke) !important;
+  background: var(--hud-panel) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(95, 227, 255, 0.08),
+    0 10px 34px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* L-скобки: ::before — левый верх, ::after — правый нижний */
+.console::before,
+.audit-panel::before,
+.cam-dock::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: 14px;
+  height: 14px;
+  border-top: 1px solid var(--hud-stroke-hot);
+  border-left: 1px solid var(--hud-stroke-hot);
+  pointer-events: none;
+}
+.console::after,
+.audit-panel::after,
+.cam-dock::after {
+  content: "";
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 14px;
+  height: 14px;
+  border-bottom: 1px solid var(--hud-stroke-hot);
+  border-right: 1px solid var(--hud-stroke-hot);
+  pointer-events: none;
+}
+.console,
+.audit-panel,
+.cam-dock {
+  position: relative;
+}
+
+/* ============================================================================
+   ШАПКА
+   ========================================================================== */
+.topbar {
+  padding: 10px 16px !important;
+  background: linear-gradient(
+    to bottom,
+    rgba(6, 14, 24, 0.9),
+    rgba(6, 14, 24, 0.55)
+  ) !important;
+  border-width: 0 0 1px !important;
+  box-shadow: 0 1px 0 rgba(95, 227, 255, 0.12) !important;
+}
+
+.brand-mark {
+  border-radius: 2px !important;
+  background: var(--hud-accent-soft) !important;
+  border: 1px solid var(--hud-accent) !important;
+  color: var(--hud-accent) !important;
+  font-family: var(--hud-mono) !important;
+  font-weight: 700;
+  box-shadow: 0 0 16px var(--hud-accent-glow);
+  transition: all 0.4s ease;
+}
+
+.brand-text strong {
+  font-family: var(--hud-mono) !important;
+  letter-spacing: 6px !important;
+  font-size: 14px !important;
+  color: var(--hud-text);
+}
+.brand-text small {
+  font-family: var(--hud-mono) !important;
+  font-size: 9.5px !important;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--hud-muted) !important;
+}
+
+/* индикатор состояния */
+.status-pill {
+  font-family: var(--hud-mono) !important;
+  font-size: 10.5px !important;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  padding: 5px 12px !important;
+  border-color: var(--hud-accent) !important;
+  color: var(--hud-accent) !important;
+  box-shadow: 0 0 18px var(--hud-accent-glow) !important;
+}
+.status-pill .dot {
+  background: var(--hud-accent) !important;
+  box-shadow: 0 0 10px var(--hud-accent);
+}
+
+/* кнопки-профили и иконки */
+.profiles button,
+.icon-btn {
+  border-radius: 2px !important;
+  border: 1px solid var(--hud-stroke) !important;
+  background: rgba(10, 20, 32, 0.6) !important;
+  color: var(--hud-text) !important;
+  font-family: var(--hud-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  transition: all 0.18s ease;
+}
+.profiles button:hover,
+.icon-btn:hover {
+  border-color: var(--hud-accent) !important;
+  color: var(--hud-accent) !important;
+  background: var(--hud-accent-soft) !important;
+}
+.profiles button.active {
+  border-color: var(--hud-accent) !important;
+  color: var(--hud-accent) !important;
+  background: var(--hud-accent-soft) !important;
+  box-shadow: inset 0 -2px 0 var(--hud-accent);
+}
+
+/* ============================================================================
+   РЕАКТОР: кольца вокруг орба
+   ========================================================================== */
+.orb-wrapper {
+  position: relative;
+  padding: 6px 0 2px;
+}
+
+/* Сцена нужна, чтобы кольца центрировались по орбу, а не по всей обёртке
+   (в обёртке ещё лежит pipeline). Внутрь самого #ai-orb кольца класть нельзя:
+   React очищает контейнер монтирования при первом рендере. */
+.orb-stage {
+  position: relative;
+  width: fit-content;
+  margin: 0 auto;
+}
+
+.reactor {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 14;
+}
+
+.reactor .ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* внешнее: пунктир, вращается медленно */
+.reactor .r1 {
+  width: 392px;
+  height: 392px;
+  border: 1px dashed rgba(95, 227, 255, 0.22);
+  animation: hud-spin 44s linear infinite;
+}
+
+/* среднее: конический градиент + засечки */
+.reactor .r2 {
+  width: 348px;
+  height: 348px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--hud-accent-glow) 26deg,
+    transparent 62deg,
+    transparent 180deg,
+    var(--hud-accent-glow) 206deg,
+    transparent 244deg
+  );
+  mask: radial-gradient(
+    circle,
+    transparent calc(50% - 3px),
+    #000 calc(50% - 2px),
+    #000 calc(50% + 2px),
+    transparent calc(50% + 3px)
+  );
+  animation: hud-spin 9s linear infinite reverse;
+  opacity: 0.85;
+}
+
+/* внутреннее: тонкое кольцо + пульс */
+.reactor .r3 {
+  width: 316px;
+  height: 316px;
+  border: 1px solid var(--hud-accent);
+  opacity: 0.35;
+  animation: hud-pulse 3.2s ease-in-out infinite;
+}
+
+@keyframes hud-spin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+@keyframes hud-pulse {
+  0%, 100% { opacity: 0.2; transform: translate(-50%, -50%) scale(0.985); }
+  50% { opacity: 0.55; transform: translate(-50%, -50%) scale(1.015); }
+}
+
+/* реактор реагирует на состояние агента */
+body[data-orb-state="listening"] .reactor .r2 { animation-duration: 3.4s; }
+body[data-orb-state="thinking"] .reactor .r2 { animation-duration: 1.5s; }
+body[data-orb-state="speaking"] .reactor .r2 { animation-duration: 5s; }
+
+/* ============================================================================
+   ПОТОК ОБРАБОТКИ (STT → LLM → TTS)
+   ========================================================================== */
+.pipeline {
+  border-radius: 2px !important;
+  font-family: var(--hud-mono) !important;
+  font-size: 9.5px !important;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  padding: 4px 10px !important;
+  border-color: var(--hud-stroke) !important;
+  overflow: hidden;
+}
+.pipe-step {
+  padding: 3px 8px;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  color: var(--hud-muted);
+  transition: all 0.2s ease;
+}
+.pipe-step.done {
+  color: var(--hud-green);
+  border-color: rgba(57, 255, 160, 0.35);
+}
+.pipe-step.active {
+  color: var(--hud-accent);
+  border-color: var(--hud-accent);
+  background: var(--hud-accent-soft);
+  box-shadow: 0 0 14px var(--hud-accent-glow);
+}
+.pipe-arrow {
+  color: var(--hud-stroke-hot) !important;
+}
+
+/* ============================================================================
+   ЧАТ
+   ========================================================================== */
+.log {
+  padding: 10px 10px 14px 8px;
+}
+
+.bubble {
+  border-radius: 2px !important;
+  border: 1px solid var(--hud-stroke) !important;
+  background: rgba(8, 18, 30, 0.72) !important;
+  color: var(--hud-text) !important;
+  font-size: 14px;
+  line-height: 1.55;
+  backdrop-filter: blur(10px);
+  box-shadow: inset 2px 0 0 var(--hud-accent);
+}
+.msg.user .bubble,
+.msg.me .bubble {
+  box-shadow: inset -2px 0 0 var(--hud-muted);
+  background: rgba(16, 26, 40, 0.72) !important;
+}
+
+.avatar {
+  border-radius: 2px !important;
+  background: var(--hud-accent-soft) !important;
+  border: 1px solid var(--hud-accent) !important;
+  color: var(--hud-accent) !important;
+  font-family: var(--hud-mono) !important;
+  font-weight: 700;
+}
+
+/* микро-заголовки секций */
+.audit-panel header h2,
+.cam-head .cam-title {
+  font-family: var(--hud-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 2.2px;
+  text-transform: uppercase;
+  color: var(--hud-muted) !important;
+}
+
+.badge {
+  border-radius: 2px !important;
+  background: var(--hud-accent-soft) !important;
+  border: 1px solid var(--hud-accent) !important;
+  color: var(--hud-accent) !important;
+  font-family: var(--hud-mono) !important;
+}
+
+#auditList {
+  font-family: var(--hud-mono) !important;
+  font-size: 11px;
+  line-height: 1.5;
+}
+#auditList li {
+  border-bottom: 1px solid rgba(95, 227, 255, 0.08);
+  padding: 6px 2px;
+}
+
+/* ============================================================================
+   ВВОД
+   ========================================================================== */
+.composer input {
+  border-radius: 2px !important;
+  border: 1px solid var(--hud-stroke) !important;
+  background: rgba(6, 14, 24, 0.75) !important;
+  color: var(--hud-text) !important;
+  font-family: var(--hud-mono) !important;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+}
+.composer input::placeholder {
+  color: rgba(127, 166, 196, 0.7) !important;
+  letter-spacing: 1px;
+}
+.composer input:focus {
+  outline: none;
+  border-color: var(--hud-accent) !important;
+  box-shadow: 0 0 0 1px var(--hud-accent), 0 0 18px var(--hud-accent-glow);
+}
+
+.send-btn {
+  border-radius: 2px !important;
+  border: 1px solid var(--hud-accent) !important;
+  background: var(--hud-accent-soft) !important;
+  color: var(--hud-accent) !important;
+  transition: all 0.18s ease;
+}
+.send-btn:hover {
+  background: var(--hud-accent) !important;
+  color: var(--hud-bg) !important;
+}
+
+.quick button {
+  border-radius: 2px !important;
+  border: 1px solid var(--hud-stroke) !important;
+  background: rgba(8, 18, 30, 0.6) !important;
+  color: var(--hud-text) !important;
+  font-size: 11.5px !important;
+  letter-spacing: 0.4px;
+  transition: all 0.18s ease;
+}
+.quick button:hover {
+  border-color: var(--hud-accent) !important;
+  color: var(--hud-accent) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 0 16px var(--hud-accent-glow);
+}
+
+/* ============================================================================
+   КАМЕРА
+   ========================================================================== */
+.cam-meta,
+.cam-actions button {
+  font-family: var(--hud-mono) !important;
+  font-size: 9.5px !important;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+}
+.cam-actions button {
+  border-radius: 2px !important;
+  border: 1px solid var(--hud-stroke) !important;
+  background: rgba(8, 18, 30, 0.6) !important;
+  color: var(--hud-text) !important;
+}
+.cam-actions button:hover {
+  border-color: var(--hud-accent) !important;
+  color: var(--hud-accent) !important;
+}
+.chip {
+  border-radius: 2px !important;
+  border: 1px solid var(--hud-stroke) !important;
+  font-family: var(--hud-mono) !important;
+}
+.chip.on {
+  border-color: var(--hud-green) !important;
+  color: var(--hud-green) !important;
+}
+#camImg,
+.cam-stage {
+  border-radius: 2px !important;
+  filter: saturate(0.82) contrast(1.06) brightness(0.94);
+}
+
+/* ============================================================================
+   АВАРИЙНАЯ ОСТАНОВКА
+   ========================================================================== */
+.emergency {
+  border-radius: 2px !important;
+  border: 1px solid var(--hud-red) !important;
+  background: rgba(255, 77, 106, 0.1) !important;
+  color: var(--hud-red) !important;
+  font-family: var(--hud-mono) !important;
+  font-size: 12px !important;
+  letter-spacing: 3px;
+  box-shadow: 0 0 22px rgba(255, 77, 106, 0.28) !important;
+  transition: all 0.18s ease;
+}
+.emergency:hover {
+  background: var(--hud-red) !important;
+  color: #fff !important;
+  box-shadow: 0 0 34px rgba(255, 77, 106, 0.55) !important;
+}
+
+/* ============================================================================
+   МОДАЛКА / ТОСТ / ЗАГОЛОВОК ЖИВОЙ РЕЧИ
+   ========================================================================== */
+.modal,
+.toast {
+  border-radius: 2px !important;
+  border: 1px solid var(--hud-accent) !important;
+  background: rgba(6, 14, 24, 0.95) !important;
+  color: var(--hud-text) !important;
+  font-family: var(--hud-mono) !important;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.7), 0 0 24px var(--hud-accent-glow);
+}
+.modal h3 {
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-family: var(--hud-mono) !important;
+}
+.modal-actions button {
+  border-radius: 2px !important;
+  font-family: var(--hud-mono) !important;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+.modal-actions .danger {
+  border: 1px solid var(--hud-red) !important;
+  background: rgba(255, 77, 106, 0.14) !important;
+  color: var(--hud-red) !important;
+}
+
+.live-caption {
+  border-radius: 2px !important;
+  border: 1px solid var(--hud-accent) !important;
+  background: rgba(6, 14, 24, 0.82) !important;
+  box-shadow: 0 0 20px var(--hud-accent-glow);
+}
+.live-tag {
+  font-family: var(--hud-mono) !important;
+  font-size: 9.5px !important;
+  letter-spacing: 2px;
+  color: var(--hud-accent) !important;
+}
+.live-text {
+  font-family: var(--hud-mono) !important;
+  font-size: 14px !important;
+}
+
+/* скроллбары */
+.log::-webkit-scrollbar,
+#auditList::-webkit-scrollbar {
+  width: 8px;
+}
+.log::-webkit-scrollbar-track,
+#auditList::-webkit-scrollbar-track {
+  background: rgba(95, 227, 255, 0.04);
+}
+.log::-webkit-scrollbar-thumb,
+#auditList::-webkit-scrollbar-thumb {
+  background: rgba(95, 227, 255, 0.22);
+  border-radius: 0;
+}
+.log::-webkit-scrollbar-thumb:hover,
+#auditList::-webkit-scrollbar-thumb:hover {
+  background: var(--hud-accent);
+}
+
+/* ============================================================================
+   ДОСТУПНОСТЬ: декоративное оформление отключаем
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .hud-scan::after,
+  .reactor .r1,
+  .reactor .r2,
+  .reactor .r3 {
+    animation: none !important;
+  }
+}
+
+/* Высокий контраст — только форма и текст, без свечения и анимаций */
+html[data-contrast="high"] .hud-grid,
+html[data-contrast="high"] .hud-scan,
+html[data-contrast="high"] .hud-vignette,
+html[data-contrast="high"] .reactor {
+  display: none !important;
+}
+html[data-contrast="high"] .topbar,
+html[data-contrast="high"] .console,
+html[data-contrast="high"] .audit-panel,
+html[data-contrast="high"] .cam-dock,
+html[data-contrast="high"] .status-pill,
+html[data-contrast="high"] .pipeline {
+  background: #000 !important;
+  border-color: #fff !important;
+  box-shadow: none !important;
+}
+html[data-contrast="high"] .bubble,
+html[data-contrast="high"] .composer input {
+  background: #000 !important;
+  border-color: #fff !important;
+}
+
+/* Светлая тема: инвертируем HUD, чтобы остался читаемым */
+html[data-theme="light"] {
+  --hud-bg: #dfe9f2;
+  --hud-panel: rgba(255, 255, 255, 0.82);
+  --hud-stroke: rgba(10, 80, 120, 0.22);
+  --hud-stroke-hot: rgba(10, 120, 170, 0.55);
+  --hud-text: #0a1a28;
+  --hud-muted: #4a6b85;
+  --hud-cyan-deep: #0aa9c8;
+}
+html[data-theme="light"] body {
+  background:
+    radial-gradient(1100px 620px at 50% -12%, rgba(10, 169, 200, 0.12), transparent 62%),
+    linear-gradient(175deg, #eaf1f7 0%, #dde8f1 100%);
+}
+html[data-theme="light"] .hud-grid {
+  background-image:
+    linear-gradient(to right, rgba(10, 80, 120, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(10, 80, 120, 0.06) 1px, transparent 1px);
+}
+html[data-theme="light"] .hud-vignette {
+  background: radial-gradient(125% 100% at 50% 45%, transparent 45%, rgba(20, 50, 70, 0.18) 100%);
+}
+html[data-theme="light"] .bubble,
+html[data-theme="light"] .composer input,
+html[data-theme="light"] .quick button,
+html[data-theme="light"] .cam-actions button,
+html[data-theme="light"] .profiles button,
+html[data-theme="light"] .icon-btn {
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: #0a1a28 !important;
+}
+html[data-theme="light"] #camImg,
+html[data-theme="light"] .cam-stage {
+  filter: none;
+}
