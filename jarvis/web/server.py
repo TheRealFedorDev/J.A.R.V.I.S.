@@ -70,6 +70,16 @@ def create_app(state) -> FastAPI:
     # ------------------------------------------------------------------
     # Статика (SPA)
     # ------------------------------------------------------------------
+    # Раздача фронтенда. Cache-Control: no-cache обязателен — без него браузер
+    # кэширует статику эвристически (у CSS есть ETag/Last-Modified, но нет
+    # Cache-Control) и после правки интерфейса показывает старую версину.
+    @app.middleware("http")
+    async def _no_store(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith(("/static", "/")):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
     @app.get("/", response_class=HTMLResponse)
     async def index() -> Response:
         index_path = _STATIC / "index.html"

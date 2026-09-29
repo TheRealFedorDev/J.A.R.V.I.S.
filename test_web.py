@@ -232,11 +232,26 @@ def client(state):
 
 
 def test_index_html(client):
+    """Минимальный HUD: орб, кольца активностей, полоса статуса.
+
+    Камера и панели (чат, аудит, ввод) убраны намеренно: страница не должна
+    ни содержать их, ни запрашивать поток камеры.
+    """
     r = client.get("/")
     assert r.status_code == 200
-    assert "BERTA" in r.text
-    assert "cam-dock" in r.text
     assert "orb.js" in r.text
+    # обязательное
+    assert "ai-orb" in r.text
+    assert "act-rings" in r.text
+    assert "statusText" in r.text
+    # все четыре этапа-индикатора
+    for act in ("stt", "search", "llm", "tts"):
+        assert f'data-act="{act}"' in r.text
+    # вырезанное не должно возвращаться
+    assert "cam-dock" not in r.text
+    assert "stream.mjpg" not in r.text
+    assert "composer" not in r.text
+    assert "auditList" not in r.text
 
 
 def test_static_css_js(client):

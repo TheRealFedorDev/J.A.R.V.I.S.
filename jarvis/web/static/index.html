@@ -3,163 +3,58 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Berta — локальный ассистент</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <link rel="stylesheet" href="/static/hud.css">
+  <title>Berta</title>
+  <link rel="stylesheet" href="/static/style.css?v=20260929g">
+  <link rel="stylesheet" href="/static/hud.css?v=20260929g">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
 </head>
 <body>
-  <!-- ══════════ HUD-ОБОЛОЧКА: рамка, сетка, скан-линии (не перехватывает клики) ══════════ -->
+  <!-- ══════════ ФОН: рамка, сетка, скан-линии, виньетка ══════════ -->
   <div class="hud-frame" aria-hidden="true">
     <i class="c1"></i><i class="c2"></i><i class="c3"></i><i class="c4"></i>
     <div class="hud-grid"></div>
     <div class="hud-scan"></div>
     <div class="hud-vignette"></div>
   </div>
-  <!-- ══════════ ШАПКА ══════════ -->
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-mark">B</span>
-      <div class="brand-text">
-        <strong>BERTA</strong>
-        <small>Berta · локальный ассистент</small>
-      </div>
-    </div>
 
-    <div class="status-pill" id="statusPill" data-state="boot">
-      <span class="dot"></span>
-      <span id="statusText">Запуск…</span>
-    </div>
-
-    <nav class="profiles" id="profileTabs" aria-label="Профили">
-      <button data-profile="home" class="active">Дом</button>
-      <button data-profile="assist">Ассист</button>
-      <button data-profile="study" title="P1">Учёба</button>
-    </nav>
-
-    <div class="top-actions">
-      <button class="icon-btn" id="micBtn" title="Микрофон" data-on="true">🎙</button>
-      <button class="icon-btn" id="ttsBtn" title="Озвучка" data-on="true">🔊</button>
-      <button class="icon-btn" id="themeBtn" title="Тема">🌙</button>
-      <button class="icon-btn" id="contrastBtn" title="Высокий контраст">◐</button>
-    </div>
-  </header>
-
-  <!-- ══════════ ИИ-ШАРИК (orb-ui) ══════════ -->
-  <div class="orb-wrapper">
-    <div class="orb-stage" aria-hidden="true">
-      <div class="reactor">
+  <!-- ══════════ ЦЕНТР: орб + кольца активностей ══════════ -->
+  <main class="center-stage">
+    <div class="orb-stage">
+      <!-- декор: медленное внешнее кольцо, быстрое среднее, пульсирующее внутреннее -->
+      <div class="reactor" aria-hidden="true">
         <i class="ring r1"></i>
         <i class="ring r2"></i>
         <i class="ring r3"></i>
       </div>
+
+      <!-- кольца активностей: загораются по body[data-orb-state] -->
+      <div class="act-rings" aria-hidden="true">
+        <span class="act" data-act="stt"><b>слушаю</b></span>
+        <span class="act" data-act="search"><b>поиск</b></span>
+        <span class="act" data-act="llm"><b>думаю</b></span>
+        <span class="act" data-act="tts"><b>говорю</b></span>
+      </div>
+
       <div id="ai-orb" class="orb-float"></div>
     </div>
-    <!-- визуал потока: STT → WebSearch/LLM → TTS -->
-    <div class="pipeline" id="pipelineBar" hidden>
-      <span class="pipe-step" data-step="stt">🎙 STT</span>
-      <span class="pipe-arrow">→</span>
-      <span class="pipe-step" data-step="search">🔍 WebSearch</span>
-      <span class="pipe-arrow">→</span>
-      <span class="pipe-step" data-step="llm">🧠 LLM</span>
-      <span class="pipe-arrow">→</span>
-      <span class="pipe-step" data-step="tts">🔊 TTS</span>
+
+    <!-- единственная полоса: что она делает сейчас -->
+    <div class="statusbar">
+      <div class="status-pill" id="statusPill" data-state="boot">
+        <span class="dot"></span>
+        <span id="statusText">Запуск…</span>
+      </div>
     </div>
-  </div>
-
-  <!-- ══════════ ЖИВАЯ ПОДПИСЬ РЕЧИ (резерв) ══════════ -->
-  <div class="live-caption" id="liveCaption" hidden>
-    <span class="live-tag" id="liveTag">СЛУШАЮ</span>
-    <span class="live-text" id="liveText"></span>
-  </div>
-
-  <!-- ══════════ ОСНОВНАЯ ЗОНА ══════════ -->
-  <main class="stage">
-    <section class="console" aria-label="Диалог">
-      <div class="log" id="log">
-        <div class="msg bot">
-          <div class="avatar">B</div>
-          <div class="bubble">
-            Привет! Я Berta. Говорите или печатайте команды:
-            <em>«открой блокнот», «клик», «найди погоду»</em>.
-            Камера слева внизу — рука, лицо и жесты.
-          </div>
-        </div>
-      </div>
-
-      <div class="quick" id="quickRow">
-        <button data-cmd="открой блокнот">📝 Блокнот</button>
-        <button data-cmd="клик">🖱 Клик</button>
-        <button data-cmd="скролл вниз">⬇ Скролл</button>
-        <button data-cmd="найди погоду">🌦 Погода</button>
-        <button data-cmd="помощь">❓ Помощь</button>
-        <button data-cmd="калибровка">🎯 Калибровка</button>
-      </div>
-
-      <form class="composer" id="composer">
-        <input id="cmdInput" type="text" autocomplete="off"
-               placeholder="Команда для Berta…  (Enter — отправить)">
-        <button type="submit" class="send-btn">➤</button>
-      </form>
-    </section>
-
-    <aside class="audit-panel" aria-label="Журнал">
-      <header>
-        <h2>Журнал действий</h2>
-        <span class="badge" id="auditCount">0</span>
-      </header>
-      <ul id="auditList"></ul>
-    </aside>
   </main>
 
-  <!-- ══════════ КАМЕРА: PIP слева-снизу ≈ ¼ экрана ══════════ -->
-  <section class="cam-dock" id="camDock" aria-label="Камера">
-    <header class="cam-head" id="camHead" title="Перетащить">
-      <span class="cam-title">📷 Камера</span>
-      <span class="cam-meta">
-        <span id="camFps">— FPS</span>
-        <span id="camFace" class="chip off">лицо ✗</span>
-        <span id="camGesture" class="chip">—</span>
-      </span>
-      <button class="cam-collapse" id="camCollapse" title="Свернуть">–</button>
-    </header>
-
-    <div class="cam-stage" id="camStage">
-      <img id="camImg" src="/stream.mjpg" alt="поток камеры">
-      <canvas id="skelCanvas"></canvas>
-      <div class="cam-placeholder" id="camPlaceholder">ожидание камеры…</div>
-      <div class="recenter-target" id="recenterTarget" hidden>⊕</div>
-    </div>
-
-    <footer class="cam-actions">
-      <button id="btnCalibrate">Калибровка</button>
-      <button id="btnRecenter">Выровнять</button>
-      <button id="btnResetOffset">Сброс</button>
-      <button id="btnCursor" class="on">Курсор: ВКЛ</button>
-    </footer>
-    <div class="cam-resize" id="camResize" title="Изменить размер"></div>
-  </section>
-
-  <!-- ══════════ ЭКСТРЕННАЯ ОСТАНОВКА (ТЗ §4.2) ══════════ -->
+  <!-- ══════════ ЭКСТРЕННАЯ ОСТАНОВКА ══════════ -->
   <button class="emergency" id="emergencyBtn" title="Экстренная остановка">
     <span>СТОП</span>
   </button>
 
-  <!-- ══════════ МОДАЛКА ПОДТВЕРЖДЕНИЯ (ТЗ §9) ══════════ -->
-  <div class="modal-backdrop" id="confirmModal" hidden>
-    <div class="modal" role="dialog" aria-modal="true">
-      <h3>⚠ Опасное действие</h3>
-      <p id="confirmText">—</p>
-      <div class="modal-actions">
-        <button class="danger" id="confirmYes">Подтвердить</button>
-        <button id="confirmNo">Отмена</button>
-      </div>
-    </div>
-  </div>
-
   <div class="toast" id="toast" hidden></div>
 
-  <script src="/static/app.js"></script>
-  <script src="/static/orb.js"></script>
+  <script src="/static/app.js?v=20260929g"></script>
+  <script src="/static/orb.js?v=20260929g"></script>
 </body>
 </html>
