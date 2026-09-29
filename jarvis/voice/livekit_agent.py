@@ -143,7 +143,12 @@ WEB_SEARCH_ENABLED = os.environ.get("VOICE_WEB_SEARCH", "1").strip().lower() not
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/v1")
 LLM_MODEL = os.environ.get("LLM_MODEL", "llama3.2:3b")
 LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "ru")
-MIN_SILENCE = float(os.environ.get("VOICE_MIN_SILENCE", "0.6"))
+# Хвост тишины, после которого VAD считает фразу законченной и отдаёт её в
+# STT. Это чистая задержка перед началом распознавания, поэтому чем меньше —
+# тем отзывчивее. Ниже ~0.4 c VAD начинает отрезать фразу на паузе внутри
+# обычной речи («вот... значит»), поэтому 0.45 c — компромисс: -0.15 c
+# относительно прежних 0.6 c без заметных обрывов.
+MIN_SILENCE = float(os.environ.get("VOICE_MIN_SILENCE", "0.45"))
 LOCAL_VOICE_KEY = os.environ.get("LOCAL_VOICE_API_KEY", "local")
 # Голосовой ответ держим коротким: на Ryzen 5 7430U (6 ядер, CPU) llama3.2:3b
 # выдаёт ~6.5 ток/с, то есть 0.16 с на токен. 64 токена ≈ 2-3 фразы ≈ 10 c.
