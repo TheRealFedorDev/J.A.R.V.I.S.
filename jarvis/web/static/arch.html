@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Berta · мост браслет → телефон → ноутбук</title>
+<link rel="stylesheet" href="./hud.css">
+<style>
+  /* Только для этой страницы. Дизайн-система (палитра, шрифты, цвета
+     состояний) приходит из hud.css, поэтому файл открывается офлайн. */
+  .wrap { max-width: 1220px; margin: 0 auto; padding: 28px 24px 60px; }
+
+  .page-head { margin-bottom: 26px; }
+  .page-head h1 {
+    font-family: var(--hud-mono);
+    font-size: 22px; letter-spacing: 4px; text-transform: uppercase;
+    margin: 0 0 8px; color: var(--hud-text);
+  }
+  .page-head p { color: var(--hud-muted); margin: 0; max-width: 74ch; line-height: 1.6; }
+  .page-head .hint {
+    display: inline-block; margin-top: 12px; padding: 5px 11px;
+    border: 1px solid var(--hud-stroke); border-radius: var(--hud-r);
+    font-family: var(--hud-mono); font-size: 10.5px; letter-spacing: 1.4px;
+    text-transform: uppercase; color: var(--hud-accent);
+  }
+
+  h2.sec {
+    font-family: var(--hud-mono); font-size: 11px; letter-spacing: 2.6px;
+    text-transform: uppercase; color: var(--hud-muted);
+    margin: 40px 0 14px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--hud-stroke);
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2.sec::before { content: ""; width: 6px; height: 6px; background: var(--hud-accent); }
+
+  /* ─────────── Схема цепочки ─────────── */
+  .scroller { overflow-x: auto; padding-bottom: 6px; }
+  .chain {
+    display: grid; grid-template-columns: 1fr 1fr 1fr 1.7fr 1fr;
+    align-items: center; gap: 0; min-width: 940px;
+  }
+
+  .node {
+    position: relative; padding: 18px 14px; text-align: center;
+    background: var(--hud-panel); border: 1px solid var(--hud-stroke);
+    border-radius: var(--hud-r);
+    box-shadow: inset 0 1px 0 rgba(95,227,255,.08);
+  }
+  .node::before, .node::after {
+    content: ""; position: absolute; width: 12px; height: 12px;
+  }
+  .node::before { top: -1px; left: -1px; border-top: 1px solid var(--hud-stroke-hot); border-left: 1px solid var(--hud-stroke-hot); }
+  .node::after { bottom: -1px; right: -1px; border-bottom: 1px solid var(--hud-stroke-hot); border-right: 1px solid var(--hud-stroke-hot); }
+
+  .node .ico { font-size: 30px; line-height: 1; margin-bottom: 10px; display: block; filter: drop-shadow(0 0 10px var(--hud-accent-glow)); }
+  .node h3 {
+    margin: 0 0 6px; font-family: var(--hud-mono); font-size: 11.5px;
+    letter-spacing: 2px; text-transform: uppercase; color: var(--hud-text);
+  }
+  .node .role { font-size: 11px; color: var(--hud-muted); line-height: 1.5; }
+  .node .caps {
+    margin-top: 11px; padding-top: 9px; border-top: 1px dashed var(--hud-stroke);
+    font-family: var(--hud-mono); font-size: 9.5px; letter-spacing: .6px;
+    color: var(--hud-accent); word-break: break-word;
+  }
+
+  .node.npc { border-color: rgba(255,181,69,.35); }
+  .node.npc .ico { filter: drop-shadow(0 0 10px rgba(255,181,69,.35)); }
+  .node.npc .caps { color: var(--hud-amber); }
+
+  /* ─────────── Связи и поток пакетов ─────────── */
+  .link { position: relative; height: 132px; }
+  .link .lbl {
+    position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+    font-family: var(--hud-mono); font-size: 9px; letter-spacing: 1.6px;
+    text-transform: uppercase; color: var(--hud-muted); white-space: nowrap;
+  }
+  .lane {
+    position: absolute; left: 0; right: 0; height: 2px;
+    background: var(--hud-stroke);
+  }
+  .lane.up { top: 56px; }
+  .lane.down { top: 92px; background: rgba(127,166,196,.16); }
+  .lane::before, .lane::after {
+    content: ""; position: absolute; top: -4px; width: 0; height: 0;
+    border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  }
+  .lane.up::after { right: -1px; border-left: 7px solid var(--hud-cyan); }
+  .lane.down::before { left: -1px; border-right: 7px solid var(--hud-amber); }
+
+  .pkt {
+    position: absolute; top: -3px; width: 8px; height: 8px; border-radius: 50%;
+    opacity: 0;
+  }
+  .lane.up .pkt {
+    background: var(--hud-cyan); box-shadow: 0 0 10px var(--hud-cyan);
+    animation: go-right 2.6s linear infinite;
+  }
+  .lane.down .pkt {
+    background: var(--hud-amber); box-shadow: 0 0 10px var(--hud-amber);
+    animation: go-left 3.1s linear infinite;
+  }
+  @keyframes go-right {
+    0% { left: 0; opacity: 0; }
+    12% { opacity: 1; }
+    88% { opacity: 1; }
+    100% { left: calc(100% - 8px); opacity: 0; }
+  }
+  @keyframes go-left {
+    0% { left: calc(100% - 8px); opacity: 0; }
+    12% { opacity: 1; }
+    88% { opacity: 1; }
+    100% { left: 0; opacity: 0; }
+  }
+  .pkt:nth-child(2) { animation-delay: .65s; }
+  .pkt:nth-child(3) { animation-delay: 1.3s; }
+  .pkt:nth-child(4) { animation-delay: 1.95s; }
+  .lane.down .pkt:nth-child(2) { animation-delay: 1.1s; }
+  .lane.down .pkt:nth-child(3) { animation-delay: 2.2s; }
+
+  .cloud {
+    position: absolute; top: 22px; left: 50%; transform: translateX(-50%);
+    padding: 7px 14px; text-align: center;
+    border: 1px dashed var(--hud-stroke-hot); border-radius: 999px;
+    background: rgba(6,14,24,.85);
+  }
+  .cloud b {
+    display: block; font-family: var(--hud-mono); font-size: 9.5px;
+    letter-spacing: 1.5px; text-transform: uppercase; color: var(--hud-cyan);
+  }
+  .cloud span { font-size: 9.5px; color: var(--hud-muted); }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px;
+    font-family: var(--hud-mono); font-size: 10px; letter-spacing: 1px;
+    color: var(--hud-muted);
+  }
+  .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; }
+  .legend .c { background: var(--hud-cyan); box-shadow: 0 0 8px var(--hud-cyan); }
+  .legend .a { background: var(--hud-amber); box-shadow: 0 0 8px var(--hud-amber); }
+
+  /* ─────────── Таблица тем ─────────── */
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .card {
+    padding: 15px 16px; background: var(--hud-panel);
+    border: 1px solid var(--hud-stroke); border-radius: var(--hud-r);
+  }
+  .card h4 {
+    margin: 0 0 4px; font-family: var(--hud-mono); font-size: 11px;
+    letter-spacing: 1.6px; color: var(--hud-cyan);
+  }
+  .card .dir { font-size: 10.5px; color: var(--hud-muted); margin-bottom: 11px; }
+  .card p { margin: 0 0 11px; font-size: 12.5px; line-height: 1.6; color: var(--hud-text); }
+
+  pre {
+    margin: 0; padding: 11px 12px; overflow-x: auto;
+    background: rgba(3,7,13,.7); border: 1px solid var(--hud-stroke);
+    border-radius: 2px;
+    font-family: var(--hud-mono); font-size: 11px; line-height: 1.55;
+    color: #b8e6f7;
+  }
+  pre .k { color: var(--hud-amber); }
+  pre .s { color: #9be7a0; }
+  pre .n { color: #ff9ec4; }
+
+  /* ─────────── Шаги сценария ─────────── */
+  .steps { counter-reset: s; display: grid; gap: 9px; }
+  .step {
+    display: grid; grid-template-columns: 34px 1fr; gap: 13px; align-items: start;
+    padding: 12px 14px; background: rgba(8,18,30,.55);
+    border: 1px solid var(--hud-stroke); border-radius: var(--hud-r);
+    border-left: 2px solid var(--hud-accent);
+  }
+  .step::before {
+    counter-increment: s; content: counter(s, decimal-leading-zero);
+    font-family: var(--hud-mono); font-size: 12px; color: var(--hud-accent);
+  }
+  .step b { font-family: var(--hud-mono); font-size: 11.5px; letter-spacing: 1.2px; }
+  .step div { font-size: 12.5px; color: var(--hud-muted); line-height: 1.6; }
+  .step .ms {
+    display: inline-block; margin-left: 8px; padding: 1px 7px;
+    border: 1px solid var(--hud-stroke); border-radius: 2px;
+    font-family: var(--hud-mono); font-size: 9.5px; color: var(--hud-amber);
+  }
+
+  .note {
+    padding: 13px 15px; border-radius: var(--hud-r);
+    border: 1px solid rgba(255,77,106,.35); background: rgba(255,77,106,.06);
+    font-size: 12.5px; line-height: 1.65; color: var(--hud-text);
+  }
+  .note b { color: var(--hud-red); font-family: var(--hud-mono); font-size: 11px; letter-spacing: 1.4px; }
+  .note.ok { border-color: rgba(57,255,160,.3); background: rgba(57,255,160,.05); }
+  .note.ok b { color: var(--hud-green); }
+  .note p { margin: 7px 0 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pkt { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page-head">
+    <h1>Мост: браслет → телефон → ноутбук</h1>
+    <p>Как физическое устройство на руке управляет Berta, которая живёт на твоём ноутбуке,
+       и почему цепочку можно так построить, что компьютер остаётся закрытым для внешней сети.</p>
+    <span class="hint">схема · протокол · сценарии · отказы</span>
+  </header>
+
+  <h2 class="sec">Схема цепочки</h2>
+
+  <div class="scroller">
+  <div class="chain">
+
+    <div class="node">
+      <span class="ico">⌚</span>
+      <h3>Браслет</h3>
+      <div class="role">Железо друзей.<br>Прошивка шлёт только JSON.</div>
+      <div class="caps">button · imu · hr · buzzer · led</div>
+    </div>
+
+    <div class="link">
+      <span class="lbl">bluetooth · локально</span>
+      <div class="lane up"><i class="pkt"></i><i class="pkt"></i><i class="pkt"></i><i class="pkt"></i></div>
+      <div class="lane down"><i class="pkt"></i><i class="pkt"></i><i class="pkt"></i></div>
+    </div>
+
+    <div class="node npc">
+      <span class="ico">📱</span>
+      <h3>Телефон</h3>
+      <div class="role">Мост. BLE к браслету<br>и выход в интернет.</div>
+      <div class="caps">очередь команд · ack · retry</div>
+    </div>
+
+    <div class="link">
+      <span class="lbl">интернет</span>
+      <div class="cloud">
+        <b>Комната LiveKit</b>
+        <span>уже оплачена и поднята</span>
+      </div>
+      <div class="lane up"><i class="pkt"></i><i class="pkt"></i><i class="pkt"></i><i class="pkt"></i></div>
+      <div class="lane down"><i class="pkt"></i><i class="pkt"></i><i class="pkt"></i></div>
+    </div>
+
+    <div class="node">
+      <span class="ico">💻</span>
+      <h3>Ноутбук</h3>
+      <div class="role">Berta: распознавание,<br>мозг, синтез речи.</div>
+      <div class="caps">agent · eventbus · plugins</div>
+    </div>
+
+  </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="c"></i>вверх: команда от руки к мозгу</span>
+    <span><i class="a"></i>вниз: ответ и реакция</span>
+  </div>
+
+  <h2 class="sec">Почему компьютер не приходится публиковать</h2>
+
+  <p>Ноутбук почти всегда стоит за NAT, а на мобильном хотспоте — за CGNAT. Публичного адреса
+     у него нет, проброс портов невозможен. Поэтому мост не подключается к веб-серверу ноутбука
+     напрямую, а идёт в комнату LiveKit, которая уже работает в интернете, уже проверена токеном
+     и сама переподключается после обрыва.</p>
+
+  <div class="note ok">
+    <b>Побочная выгода</b>
+    <p>Веб-сервер Berta сейчас висит на <code>127.0.0.1</code> вообще без авторизации, а внутри
+       камера, тумблер микрофона и аварийная остановка. Через мост в интернет уходит ровно то,
+       что должно: команды браслета. Веб-интерфейс остаётся локальным и неприкосновенным.</p>
+  </div>
+
+  <h2 class="sec">Три темы — весь протокол</h2>
+
+  <div class="grid2">
+
+    <div class="card">
+      <h4>bracelet.event</h4>
+      <div class="dir">вверх · телефон → ноутбук · надёжно</div>
+      <p>Нажатия и жесты. Команды нельзя терять, поэтому повторяются, пока ноутбук не подтвердит приём.</p>
+<pre><span class="k">{"v"</span>:1<span class="k">,"type"</span>:<span class="s">"button"</span><span class="k">,"action"</span>:<span class="s">"press"</span><span class="k">,"ts"</span>:<span class="n">1712</span>}</pre>
+    </div>
+
+    <div class="card">
+      <h4>bracelet.cmd</h4>
+      <div class="dir">вниз · ноутбук → телефон</div>
+      <p>Вибрация, светодиод, смена экрана. Если телефон не в сети — сообщение просто отбрасывается,
+         повторять бессмысленно.</p>
+<pre><span class="k">{"v"</span>:1<span class="k">,"type"</span>:<span class="s">"buzz"</span><span class="k">,"ms"</span>:<span class="n">120</span><span class="k">,"reason"</span>:<span class="s">"speaking"</span>}</pre>
+    </div>
+
+    <div class="card">
+      <h4>berta.state</h4>
+      <div class="dir">вниз · ноутбук → телефон</div>
+      <p>Что сейчас происходит со школотницей: слушает, думает, говорит. Приложение показывает это
+         на экране, а браслет мигает в такт речи.</p>
+<pre><span class="k">{"v"</span>:1<span class="k">,"state"</span>:<span class="s">"speaking"</span><span class="k">,"text"</span>:<span class="s">"Тридцать градусов"</span>}</pre>
+    </div>
+
+    <div class="card">
+      <h4>berta.hello</h4>
+      <div class="dir">при входе в комнату</div>
+      <p>Рукопожатие: кто подключился и что он умеет. Ноутбук отвечает тем же и говорит, какие
+         темы слушать. Новое устройство подключается само, без правки кода.</p>
+<pre><span class="k">{"v"</span>:1<span class="k">,"device"</span>:<span class="s">"bracelet"</span><span class="k">,"caps"</span>:[<span class="s">"button"</span>,<span class="s">"imu"</span>,<span class="s">"vibrate"</span>]}
+<span class="k">← отв.</span> <span class="k">{"listen"</span>:[<span class="s">"bracelet.event"</span>]<span class="k">}</span></pre>
+    </div>
+
+  </div>
+
+  <h2 class="sec">Сценарий: нажал кнопку на руке</h2>
+
+  <div class="steps">
+    <div class="step"><div><b>Кнопка</b> — палец на браслете, прошивка шлёт <code>press</code>.
+      Дальше браслет больше ни о чём не думает.</div></div>
+    <div class="step"><div><b>Телефон принимает BLE</b> и кладёт команду в очередь.
+      Если ноутбук на связи — отправляет сразу. Если нет — ждёт в очереди.</div></div>
+    <div class="step"><div><b>Канал данных LiveKit</b> — ноутбук получает кадр и отвечает подтверждением.
+      Команда считается доставленной и уходит из очереди.
+      <span class="ms">1 с</span></div></div>
+    <div class="step"><div><b>Шина событий ноутбука</b> — команда превращается в то же самое событие,
+      которое порождает голосовая команда. Дальше всё как обычно: профиль, поиск, ответ.</div></div>
+    <div class="step"><div><b>Ответ назад</b> — текст уходит вниз: телефон показывает его,
+      браслет вибрирует, чтобы было понятно, что Berta говорит.
+      <span class="ms">+0.4 с</span></div></div>
+  </div>
+
+  <h2 class="sec">Когда звено умирает</h2>
+
+  <p>Требование «работает, пока живо хоть одно звено» на самом деле состоит из трёх разных случаев,
+     и их важно не путать.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h4>Браслет потерял телефон</h4>
+      <p>Команды копятся на телефоне и уходят, как только связь вернётся. Ничего не теряется.</p>
+    </div>
+    <div class="card">
+      <h4>Телефон потерял интернет</h4>
+      <p>Очередь растёт. Кнопка «поговори с Бертой» честно не сработает — это физика, а не баг.
+      Но локальные команды приложение выполняет у себя.</p>
+    </div>
+    <div class="card">
+      <h4>Ноутбук выключен</h4>
+      <p>То же самое: команда ждёт. Как только Berta стартует и входит в комнату, очередь
+      разгружается. Сообщения LiveKit сами по себе <b>не переживают</b> офлайн — именно поэтому
+      очередь и повтор в приложении обязательны.</p>
+    </div>
+    <div class="card">
+      <h4>Браслет потерял батарею</h4>
+      <p>Остальная цепочка работает как ни в чём не бывало. Браслет — необязательное звено,
+      поэтому его прошивка может быть предельно простой.</p>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>Честно про реальное время</b>
+    <p>Управление вживую требует живой цепочки целиком — это физика, а не недоработка.
+      Терпимость к обрывам даёт не транспорт, а очередь с подтверждениями на телефоне.
+      Без неё «работает, пока живо хоть одно звено» — просто лозунг.</p>
+  </div>
+
+  <h2 class="sec">Что писать сейчас, без железа</h2>
+
+  <p>Протокол целиком проверяется офлайн: ноутбук — сторона, которая принимает и раздаёт,
+     а симулятор браслета просто говорит на этом же JSON. Железо появится позже и будет
+     повторять только контракт.</p>
+
+  <pre><span class="k">1.</span> разбор кадра + версия протокола, отказ на мусоре без падения
+<span class="k">2.</span> туллинг с соседями по комнате: кто что умеет
+<span class="k">3.</span> мост событие шины  →  кнопка как голосовая команда
+<span class="k">4.</span> мост состояние шины  →  вибрация и текст
+<span class="k">5.</span> симулятор + тесты на весь обмен</pre>
+
+</div>
+</body>
+</html>
