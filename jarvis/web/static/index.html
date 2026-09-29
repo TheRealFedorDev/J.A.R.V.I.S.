@@ -5,9 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Berta — локальный ассистент</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/hud.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
 </head>
 <body>
+  <!-- ══════════ HUD-ОБОЛОЧКА: рамка, сетка, скан-линии (не перехватывает клики) ══════════ -->
+  <div class="hud-frame" aria-hidden="true">
+    <i class="c1"></i><i class="c2"></i><i class="c3"></i><i class="c4"></i>
+    <div class="hud-grid"></div>
+    <div class="hud-scan"></div>
+    <div class="hud-vignette"></div>
+  </div>
   <!-- ══════════ ШАПКА ══════════ -->
   <header class="topbar">
     <div class="brand">
@@ -39,7 +47,14 @@
 
   <!-- ══════════ ИИ-ШАРИК (orb-ui) ══════════ -->
   <div class="orb-wrapper">
-    <div id="ai-orb" class="orb-float" aria-hidden="true"></div>
+    <div class="orb-stage" aria-hidden="true">
+      <div class="reactor">
+        <i class="ring r1"></i>
+        <i class="ring r2"></i>
+        <i class="ring r3"></i>
+      </div>
+      <div id="ai-orb" class="orb-float"></div>
+    </div>
     <!-- визуал потока: STT → WebSearch/LLM → TTS -->
     <div class="pipeline" id="pipelineBar" hidden>
       <span class="pipe-step" data-step="stt">🎙 STT</span>

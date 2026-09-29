@@ -94,7 +94,54 @@ class LiveKitVoiceService(BaseService):
             self._kill(self._shim)
             self._shim = None
             return False
+        self._warm_llm()
         return True
+
+    def _warm_llm(self) -> None:
+        """Прогреть Ollama параллельно с boot агента.
+
+        Первый запрос к только что загруженной модели выдаёт мусор на стыке
+        языков («ЯBertha», «иanswersвить»), а сама загрузка съедает секунды.
+        Гоняем болтовню в фоне, чтобы приветствие агента уже было тёплым.
+        """
+        import threading
+
+        url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/v1") + "/chat/completions"
+        model = os.environ.get("LLM_MODEL", "llama3.2:3b")
+        # Без keep_alive Ollama выгружает модель через 5 минут молчания, и
+        # следующий запрос платит ~12.5 c холодной загрузки вместо 0.2 c
+        # тёплой. Держим модель в памяти между репликами.
+        keep_alive = os.environ.get("OLLAMA_KEEP_ALIVE", "30m")
+        payload = json.dumps(
+            {
+                "model": model,
+                "stream": False,
+                "max_tokens": 8,
+                "keep_alive": keep_alive,
+                "messages": [
+                    {"role": "system", "content": "Ты — Берта. Отвечай по-русски."},
+                    {"role": "user", "content": "Привет!"},
+                ],
+            }
+        ).encode("utf-8")
+
+        def warm() -> None:
+            import urllib.request
+
+            try:
+                req = urllib.request.Request(
+                    url, data=payload, headers={"Content-Type": "application/json"}
+                )
+                t0 = time.monotonic()
+                with urllib.request.urlopen(req, timeout=180) as response:
+                    response.read()
+                log.info(
+                    "голос: LLM %s прогрет за %.1f c", model, time.monotonic() - t0
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("не удалось прогреть LLM %s: %s", model, exc)
+
+        threading.Thread(target=warm, name="llm-warmup", daemon=True).start()
 
     @staticmethod
     def _port_busy() -> bool:
@@ -168,6 +215,13 @@ class LiveKitVoiceService(BaseService):
         env["LOCAL_VOICE_URL"] = f"http://{HOST}:{PORT}/v1"
         env["LLM_MODEL"] = os.environ.get("LLM_MODEL", "llama3.2:3b")
         env["WHISPER_LANGUAGE"] = self._cfg.whisper_language
+        # urllib зовёт getproxies_registry() (сканирование HKCU через winreg,
+        # ~2.5 c на event loop агента) только если переменных *_proxy нет.
+        # no_proxy попадает в тот же разбор, поэтому обходим реестр и заодно
+        # честно исключаем локальные адреса из прокси.
+        local_no_proxy = f"{HOST},localhost,127.0.0.1,::1"
+        env["no_proxy"] = local_no_proxy
+        env["NO_PROXY"] = local_no_proxy
         return env
 
     def _pump(self, proc: subprocess.Popen[bytes], prefix: str) -> None:

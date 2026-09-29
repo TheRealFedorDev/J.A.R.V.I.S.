@@ -21,13 +21,13 @@ import os
 import threading
 import wave
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 import av
 import edge_tts
 import numpy as np
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from jarvis.core.config import AppConfig
 from jarvis.core.logging import setup_logging
@@ -218,14 +218,28 @@ async def speech(payload: dict[str, Any]) -> Response:
     if not voice.endswith("Neural"):
         voice = default_voice
 
-    audio = bytearray()
-    communicate = edge_tts.Communicate(text, voice, rate=TTS_RATE)
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            audio.extend(chunk["data"])
+    async def iter_mp3() -> AsyncIterator[bytes]:
+        """Отдаём mp3 кусками по мере синтеза, а не целиком.
 
-    log.info("TTS (%s): %s", voice, text[:80])
-    return Response(content=bytes(audio), media_type="audio/mpeg")
+        Раньше весь ответ копился в bytearray и уезжал одним куском:edge-tts
+        к моменту отправки уже успевал отдать всё, и LiveKit начинал plays
+        только после конца предложения. LiveKit 1.8 сам режет поток LLM на
+        предложения и шлёт их в TTS по одному, поэтому побайтовый стриминг
+        здесь сдвигает начало озвучки к середине синтеза, а не к его концу.
+        Content-Type остаётся audio/mpeg - плагин openai по нему выбирает
+        ветку stream.iter_bytes() (SSE-ветку не включаем).
+        """
+        communicate = edge_tts.Communicate(text, voice, rate=TTS_RATE)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio" and chunk["data"]:
+                yield chunk["data"]
+
+    log.info("TTS (%s, поток): %s", voice, text[:80])
+    return StreamingResponse(
+        iter_mp3(),
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def main() -> None:
