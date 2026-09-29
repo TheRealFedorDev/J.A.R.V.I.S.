@@ -108,11 +108,16 @@ class LiveKitVoiceService(BaseService):
 
         url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/v1") + "/chat/completions"
         model = os.environ.get("LLM_MODEL", "llama3.2:3b")
+        # Без keep_alive Ollama выгружает модель через 5 минут молчания, и
+        # следующий запрос платит ~12.5 c холодной загрузки вместо 0.2 c
+        # тёплой. Держим модель в памяти между репликами.
+        keep_alive = os.environ.get("OLLAMA_KEEP_ALIVE", "30m")
         payload = json.dumps(
             {
                 "model": model,
                 "stream": False,
                 "max_tokens": 8,
+                "keep_alive": keep_alive,
                 "messages": [
                     {"role": "system", "content": "Ты — Берта. Отвечай по-русски."},
                     {"role": "user", "content": "Привет!"},

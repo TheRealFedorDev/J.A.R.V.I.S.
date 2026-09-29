@@ -148,6 +148,11 @@ LOCAL_VOICE_KEY = os.environ.get("LOCAL_VOICE_API_KEY", "local")
 # Голосовой ответ держим коротким: на Ryzen 5 7430U (6 ядер, CPU) llama3.2:3b
 # выдаёт ~6.5 ток/с, то есть 0.16 с на токен. 64 токена ≈ 2-3 фразы ≈ 10 c.
 MAX_TOKENS = int(os.environ.get("VOICE_LLM_MAX_TOKENS", "64"))
+# Сколько Ollama держит модель в памяти после последнего запроса. Дефолт
+# Ollama — 5 минут, потом модель выгружается и следующая реплика платит
+# ~12.5 c холодной загрузки вместо 0.2 c тёплой. Принимается и через
+# OpenAI-совместимый /v1/chat/completions (проверено: HTTP 200).
+KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "30m")
 
 INSTRUCTIONS = os.environ.get(
     "BERTA_SYSTEM_PROMPT",
@@ -225,7 +230,12 @@ async def entrypoint(ctx: JobContext) -> None:
             # ВАЖНО: Ollama игнорирует max_completion_tokens (проверено: при
             # лимите 20 он спокойно отдал 989 токенов = 184 c озвучки), поэтому
             # лимит уходит в max_tokens через extra_body.
-            extra_body={"max_tokens": MAX_TOKENS},
+            # keep_alive не даёт Ollama выгрузить модель после 5 минут молчания:
+            # холодный первый запрос стоит ~12.5 c против 0.2 c тёплого.
+            extra_body={
+                "max_tokens": MAX_TOKENS,
+                "keep_alive": KEEP_ALIVE,
+            },
         ),
         tts=openai.TTS(
             model="tts-1",
