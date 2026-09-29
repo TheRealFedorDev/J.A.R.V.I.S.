@@ -730,3 +730,259 @@ html[data-theme="light"] #camImg,
 html[data-theme="light"] .cam-stage {
   filter: none;
 }
+
+/* ============================================================================
+   МИНИМАЛЬНЫЙ РЕЖИМ
+   На экране только три вещи: переливающийся фон, орб с кольцами активностей
+   и одна полоса «что она делает сейчас». Управление состоянием идёт из
+   body[data-orb-state] — его ставит updateOrb() в app.js, JS не меняется.
+   ========================================================================== */
+
+/* Центральная колонка занимает всю страницу */
+/* Полотно на весь экран. Орб и полоса статуса позиционируются независимо:
+   иначе статус отодвинул бы орб от геометрического центра. */
+.center-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+
+  /* Смещения относительно геометрического центра окна. Отрицательное = влево.
+     --orb-offset  — орб вместе с его гало (.reactor)
+     --ring-offset — большая окружность с точками активностей
+     Значения задаются от центра окна, а не друг от друга, чтобы не путаться
+     в арифметике. Меняешь числа здесь — едет вся композиция. */
+  --orb-offset-x: 0px;
+  --orb-offset-y: 0px;
+  --ring-offset-x: 0px;
+  --ring-offset-y: 0px;
+
+  /* Смещение самого орба относительно колец — независимый канал.
+     Отрицательное = влево / вверх. */
+  --ai-orb-offset-x: -27.5px;
+  --ai-orb-offset-y: -27.5px;
+}
+
+/* Орб — ровно в центре окна. Габарит сцены обязан совпадать с реальным
+   размером орба (style.css: #ai-orb 220px), иначе margin:auto у .orb-float
+   выталкивает его вбок и центр смещается. */
+.center-stage .orb-stage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 220px;
+  height: 220px;
+  margin: 0;
+  transform: translate(
+    calc(-50% + var(--orb-offset-x)),
+    calc(-50% + var(--orb-offset-y))
+  );
+  display: grid;
+  place-items: center;
+}
+
+/* Гасим auto--margin и задаём точный размер: орб центрируется сеткой, а не
+   догадками. */
+.center-stage .orb-float {
+  width: 220px;
+  height: 220px;
+  margin: 0;
+
+  /* Смещение самого орба относительно колец. Именно left/top, а не transform:
+     .orb-float анимируется через transform (style.css: orb-float 5s), и
+     анимация перебила бы transform со сдвигом. relative + left/top живут
+     отдельно от анимации, поэтому орб и покачивается, и стоит куда надо. */
+  position: relative;
+  left: var(--ai-orb-offset-x);
+  top: var(--ai-orb-offset-y);
+}
+
+/* ── Кольца активностей вокруг орба ──────────────────────────────────────── */
+/* Большая окружность. Размер зависит от окна, чтобы целиком влезать по
+   высоте и по ширине и никогда не вызывать прокрутку (body: overflow hidden).
+   Узлы стоят на её радиусе: 0 / 50% / 100% по координатам бокса. */
+.center-stage {
+  /* Радиус окружности подобран так, чтобы кольцо не доходило до полосы
+     статуса: низ окружности = 50% + 26% высоты = 76%, полоса живёт ниже 88%. */
+  --act-size: min(520px, 52vh, 80vw);
+}
+
+.act-rings {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--act-size);
+  height: var(--act-size);
+  /* .act-rings вложен в .orb-stage, а тот уже сдвинут на --orb-offset.
+     Компенсируем разницу, чтобы кольцо село на собственное смещение от
+     центра окна, а не наследовало сдвиг орба. */
+  transform: translate(
+    calc(-50% + (var(--ring-offset-x) - var(--orb-offset-x))),
+    calc(-50% + (var(--ring-offset-y) - var(--orb-offset-y)))
+  );
+  pointer-events: none;
+  z-index: 13;
+}
+
+/* сама окружность — едва заметная, чтобы точки читались как её точки */
+.act-rings::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px dashed var(--hud-stroke);
+  opacity: 0.5;
+}
+
+/* Узел — маленькая точка на радиусе. Подпись появляется только у активной. */
+.act {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  transform: translate(-50%, -50%) scale(0.8);
+  border-radius: 50%;
+  border: 1px solid var(--hud-stroke-hot);
+  background: var(--hud-panel-solid);
+  opacity: 0.3;
+  transition: opacity 0.28s ease, transform 0.28s ease,
+              border-color 0.28s ease, box-shadow 0.28s ease,
+              background 0.28s ease;
+}
+
+.act b {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--hud-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--hud-muted);
+  opacity: 0;
+  transition: color 0.28s ease, opacity 0.28s ease, text-shadow 0.28s ease;
+}
+
+.act[data-act="stt"]    { top: 0;    left: 50%; }
+.act[data-act="search"] { top: 50%;  left: 0;    }
+.act[data-act="llm"]    { top: 50%;  left: 100%; }
+.act[data-act="tts"]    { top: 100%; left: 50%;  }
+
+/* активный этап: точка горит и подписывается */
+.act.on {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.25);
+  background: var(--hud-accent);
+  border-color: var(--hud-accent);
+  box-shadow: 0 0 18px var(--hud-accent-glow), 0 0 40px var(--hud-accent-soft);
+}
+.act.on b {
+  opacity: 1;
+  color: var(--hud-accent);
+  text-shadow: 0 0 12px var(--hud-accent-glow);
+}
+
+/* этап позади — точка погасла, но след остался */
+.act.past {
+  opacity: 0.75;
+  border-color: var(--hud-green);
+  background: var(--hud-green);
+  box-shadow: 0 0 10px rgba(57, 255, 160, 0.35);
+}
+.act.past b { opacity: 0.55; color: var(--hud-green); }
+
+body[data-orb-state="error"] .act {
+  border-color: var(--hud-red);
+  background: var(--hud-red);
+  opacity: 0.8;
+}
+body[data-orb-state="error"] .act b { opacity: 0.8; color: var(--hud-red); }
+
+/* ── Полоса «что делает сейчас» ──────────────────────────────────────────── */
+/* Живёт у нижней кромки окна, по центру, и не участвует в компоновке орба. */
+.statusbar {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(26px, 6vh, 64px);
+  transform: translateX(-50%);
+  display: flex;
+  justify-content: center;
+  max-width: min(90vw, 640px);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 20px;
+  border: 1px solid var(--hud-stroke);
+  border-radius: 999px;
+  background: var(--hud-panel);
+  backdrop-filter: blur(6px);
+  font-family: var(--hud-mono);
+  font-size: 11.5px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--hud-text);
+  white-space: nowrap;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
+}
+
+.status-pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--hud-muted);
+  box-shadow: 0 0 8px currentColor;
+  transition: background 0.3s ease;
+}
+
+/* подсветка полосы тем же акцентом, что и у орба */
+body[data-orb-state="listening"] .status-pill,
+body[data-orb-state="thinking"]  .status-pill,
+body[data-orb-state="speaking"]  .status-pill {
+  border-color: var(--hud-accent);
+  box-shadow: 0 0 20px var(--hud-accent-soft);
+}
+body[data-orb-state="listening"] .status-pill .dot,
+body[data-orb-state="thinking"]  .status-pill .dot,
+body[data-orb-state="speaking"]  .status-pill .dot { background: var(--hud-accent); }
+
+body[data-orb-state="listening"] .status-pill .dot { animation: hud-blink 1.1s ease-in-out infinite; }
+body[data-orb-state="thinking"]  .status-pill .dot { animation: hud-blink 0.45s ease-in-out infinite; }
+body[data-orb-state="speaking"]  .status-pill .dot { animation: hud-pulse-dot 1.6s ease-in-out infinite; }
+
+body[data-orb-state="error"] .status-pill {
+  border-color: var(--hud-red);
+  color: var(--hud-red);
+}
+body[data-orb-state="error"] .status-pill .dot { background: var(--hud-red); }
+
+@keyframes hud-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+@keyframes hud-pulse-dot {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.5); }
+}
+
+/* ── Кнопка СТОП: приглушённая, но на месте ──────────────────────────────── */
+.emergency {
+  opacity: 0.32;
+  transition: opacity 0.25s ease;
+}
+.emergency:hover { opacity: 0.9; }
+body[data-orb-state="error"] .emergency { opacity: 0.8; }
+
+/* ── Уважение к настройкам доступности ───────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .act, .status-pill, .status-pill .dot { transition: none; }
+  .status-pill .dot { animation: none !important; }
+}
+html[data-contrast="high"] .act { opacity: 0.45; }
+html[data-contrast="high"] .act.on { opacity: 1; }

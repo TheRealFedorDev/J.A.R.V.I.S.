@@ -1,7 +1,9 @@
 /* Berta web — статус, WS, камера+скелет, команды, профили, СТОП */
 "use strict";
 
-const $ = (id) => document.getElementById(id);
+/* Отсутствующий элемент заменяется отсоединённой заглушкой: разметка может быть
+   урезана (минимальный HUD), но скрипт продолжает работать без ошибок. */
+const $ = (id) => document.getElementById(id) || document.createElement("div");
 
 /* ═══════════ DOM ═══════════ */
 const el = {
@@ -177,7 +179,31 @@ const _orbStateMap = {
 
 const _pipelineEl = $("pipelineBar");
 
+/* Порядок этапов = визуальный поток вокруг орба.
+   on  — идёт прямо сейчас, past — этап позади. */
+const _ACT_ORDER = ["stt", "search", "llm", "tts"];
+const _ACT_ON = {
+  listening: ["stt"],
+  thinking: ["search", "llm"],
+  speaking: ["tts"],
+  error: _ACT_ORDER,
+};
+
 function _setPipeline(state) {
+  // кольца активностей вокруг орба
+  const acts = document.querySelectorAll(".act[data-act]");
+  if (acts.length) {
+    const on = _ACT_ON[state] || [];
+    acts.forEach((a) => {
+      const i = _ACT_ORDER.indexOf(a.dataset.act);
+      a.classList.remove("on", "past");
+      if (on.includes(a.dataset.act)) {
+        a.classList.add("on");
+      } else if (on.length && i >= 0 && i < _ACT_ORDER.indexOf(on[0])) {
+        a.classList.add("past");
+      }
+    });
+  }
   if (!_pipelineEl) return;
   _pipelineEl.hidden = state === "idle";
   const steps = _pipelineEl.querySelectorAll(".pipe-step");
