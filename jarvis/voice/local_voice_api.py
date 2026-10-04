@@ -48,6 +48,15 @@ TTS_RATE = os.environ.get("TTS_RATE", "+0%")
 
 TARGET_RATE = 16000
 
+# Подсказка для whisper: задаёт орфографию, пунктуацию и лексику. На коротких
+# репликах без неё base- модель гасит имена собственные и путает «Пётр Первый».
+WHISPER_PROMPT = (
+    "Берта — голосовой помощник. Отвечает по-русски, кратко и по делу."
+    " Распознанные реплики пользователя: Кем был Пётр Первый? "
+    "Что такое эмбеддинг? Сколько будет стоить доставка? "
+    "Открой поиск и найди последние новости."
+)
+
 app = FastAPI(title="Berta local voice API", docs_url=None, redoc_url=None)
 
 _model: Any = None
@@ -146,9 +155,16 @@ def _transcribe(samples: np.ndarray) -> str:
     segments, _info = _get_model().transcribe(
         samples,
         language=VOICE.whisper_language,
-        beam_size=1,
+        beam_size=5,
         # без этого whisper способен зациклиться и «придумать» повтор
         condition_on_previous_text=False,
+        # Подсказка по стилю: уводит whisper в русскую орфографию и подтягивает
+        # имена собственные, которые на коротких репликах он иначе коверкает
+        # («Пётр Первый» -> «пылья, певый»).
+        initial_prompt=WHISPER_PROMPT,
+        # страховка от вырожденного повтора: полезнее пустая реплика, чем «я я я»
+        repetition_penalty=1.05,
+        no_speech_threshold=0.6,
     )
     return " ".join(segment.text.strip() for segment in segments).strip()
 
