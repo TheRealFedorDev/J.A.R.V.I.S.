@@ -149,7 +149,23 @@ def create_app(state) -> FastAPI:
     # ------------------------------------------------------------------
     @app.get("/api/status")
     async def status() -> dict:
-        return state.snapshot()
+        from jarvis.core.backends import describe
+
+        payload = state.snapshot()
+        provider = state.router.llm_provider() if state.router else None
+        payload["backends"] = describe()
+        payload["backends"]["llm"]["active"] = str(provider) if provider else None
+        return payload
+
+    @app.get("/api/backends")
+    async def backends() -> dict:
+        """Железо, выбранные модели и цепочки провайдеров с фоллбэком."""
+        from jarvis.core.backends import describe
+
+        payload = describe()
+        provider = state.router.llm_provider() if state.router else None
+        payload["llm"]["active"] = str(provider) if provider else None
+        return payload
 
     @app.get("/api/health")
     async def health() -> dict:

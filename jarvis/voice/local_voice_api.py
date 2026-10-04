@@ -29,6 +29,7 @@ import numpy as np
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from jarvis.core.backends import resolve_stt
 from jarvis.core.config import AppConfig
 from jarvis.core.logging import setup_logging
 from jarvis.tts.voices import DEFAULT_EN_VOICE, DEFAULT_RU_VOICE, is_russian
@@ -37,6 +38,9 @@ log = logging.getLogger("voice.local_api")
 
 CONFIG = AppConfig.load(Path(".env"))
 VOICE = CONFIG.voice
+# План STT считаем один раз при импорте: он читает железо через nvidia-smi,
+# а модель грузится лениво при первом запросе.
+STT_PLAN = resolve_stt()
 
 HOST = os.environ.get("LOCAL_VOICE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("LOCAL_VOICE_PORT", "8077"))
@@ -72,20 +76,18 @@ def _get_model() -> Any:
             if _model is None:
                 from faster_whisper import WhisperModel
 
-                device = VOICE.whisper_device
-                if device == "auto":
-                    device = "cpu"
+                plan = STT_PLAN
                 log.info(
-                    "Загружаю faster-whisper: model=%s device=%s compute=%s lang=%s",
-                    VOICE.whisper_model,
-                    device,
-                    VOICE.whisper_compute_type,
+                    "Загружаю faster-whisper: model=%s device=%s compute=%s "
+                    "lang=%s (модель:%s девайс:%s)",
+                    plan.model, plan.device, plan.compute_type,
                     VOICE.whisper_language,
+                    plan.model_source, plan.device_source,
                 )
                 _model = WhisperModel(
-                    VOICE.whisper_model,
-                    device=device,
-                    compute_type=VOICE.whisper_compute_type,
+                    plan.model,
+                    device=plan.device,
+                    compute_type=plan.compute_type,
                 )
     return _model
 
@@ -173,7 +175,9 @@ def _transcribe(samples: np.ndarray) -> str:
 async def health() -> dict[str, Any]:
     return {
         "ok": True,
-        "asr": VOICE.whisper_model,
+        "asr": STT_PLAN.model,
+        "device": STT_PLAN.device,
+        "compute_type": STT_PLAN.compute_type,
         "language": VOICE.whisper_language,
         "tts_voice": TTS_VOICE,
     }
@@ -185,7 +189,12 @@ async def models() -> dict[str, Any]:
     return {
         "object": "list",
         "data": [
-            {"id": "whisper-1", "object": "model", "created": now, "owned_by": "local"},
+            {
+                "id": STT_PLAN.model,
+                "object": "model",
+                "created": now,
+                "owned_by": "local",
+            },
             {"id": "tts-1", "object": "model", "created": now, "owned_by": "local"},
         ],
     }

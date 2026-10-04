@@ -62,20 +62,29 @@ class WhisperStreamDecoder:
     def load(self) -> None:
         from faster_whisper import WhisperModel
 
-        device = self._device
-        ct = self._compute_type
-        if ct == "default":
-            ct = "float16" if device == "cuda" else "int8"
+        from jarvis.core.backends import resolve_stt
+
+        plan = resolve_stt()
+        model_name = self._model_name if self._model_name not in ("", "auto") else plan.model
+        device = self._device if self._device not in ("", "auto") else plan.device
+        compute_type = (
+            self._compute_type
+            if self._compute_type not in ("", "auto", "default")
+            else plan.compute_type
+        )
         t0 = time.monotonic()
         self._model = WhisperModel(
-            self._model_name,
-            device=device if device and device != "auto" else "auto",
-            compute_type=ct,
+            model_name,
+            device=device,
+            compute_type=compute_type,
             cpu_threads=0,  # auto
         )
+        self._model_name = model_name
+        self._device = device
+        self._compute_type = compute_type
         log.info(
             "голос: faster-whisper %s готов за %.1f c (device=%s, ct=%s)",
-            self._model_name, time.monotonic() - t0, device, ct,
+            model_name, time.monotonic() - t0, device, compute_type,
         )
 
     # ------------------------------------------------------------------

@@ -25,6 +25,7 @@ import os
 import threading
 from typing import Any
 
+from jarvis.core.backends import resolve_stt
 from jarvis.core.config import VoiceConfig
 from jarvis.core.events import (
     BotReplyEvent,
@@ -682,12 +683,13 @@ class PipecatVoiceService(BaseService):
             except ValueError:
                 lang = Language.RU
 
+        stt_plan = resolve_stt()
         stt = WhisperSTTService(
-            device=cfg.whisper_device,
-            compute_type=cfg.whisper_compute_type,
+            device=stt_plan.device,
+            compute_type=stt_plan.compute_type,
             sample_rate=sr_in,
             settings=WhisperSTTService.Settings(
-                model=cfg.whisper_model,
+                model=stt_plan.model,
                 language=lang or Language.RU,
                 no_speech_prob=0.4,
                 hotwords=None,
