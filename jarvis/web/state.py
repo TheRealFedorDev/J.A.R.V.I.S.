@@ -27,6 +27,7 @@ from jarvis.core.events import (
     VoicePartialEvent,
     VoiceStateEvent,
 )
+from jarvis.voice.tasks_rule import parse_task_command
 
 log = logging.getLogger("jarvis.web")
 
@@ -127,6 +128,106 @@ class ProfileManager:
             log.warning("не удалось сохранить профиль в %s", self._path)
         self._on_change(self.current)
         return self.current
+
+
+# ---------------------------------------------------------------------------
+# Задачник: плоский список без дат (ТЗ — «на сегодня» = весь список)
+# ---------------------------------------------------------------------------
+class TaskManager:
+    """Задачи пользователя: models/tasks.json, без дат и статусов.
+
+    Правило, а не LLM: добавление/правка/удаление детерминированы, работают
+    без Ollama и никогда не выдумывают текст задачи. Порядок — как добавляли,
+    id — стабильный, чтобы голос мог сказать «удали задачу три».
+    """
+
+    _MAX_TASKS = 200      # защита от бесконечного набора голосом
+    _MAX_LEN = 500        # строка задачи и так растёт вниз, но не в бесконечность
+
+    def __init__(self, path: Path, on_change) -> None:
+        self._path = path
+        self._on_change = on_change
+        self._tasks: list[dict] = []
+        self._lock = threading.Lock()
+        self._next_id = 1
+        self._load()
+
+    def _load(self) -> None:
+        """Читает список; при отсутствии/порче файла — пустой, без падения."""
+        try:
+            if not self._path.exists():
+                return
+            saved = json.loads(self._path.read_text(encoding="utf-8"))
+            self._tasks = [
+                {"id": int(t["id"]), "text": str(t["text"])}
+                for t in saved
+                if isinstance(t, dict) and str(t.get("text", "")).strip()
+            ]
+        except Exception:
+            log.warning(
+                "не удалось прочитать %s, список задач пуст", self._path,
+                exc_info=True,
+            )
+            self._tasks = []
+        self._next_id = max((t["id"] for t in self._tasks), default=0) + 1
+
+    def _save(self) -> None:
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.write_text(
+                json.dumps(self._tasks, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            log.warning("не удалось сохранить задачи в %s", self._path)
+
+    def list(self) -> list[dict]:
+        """Копия: вызывающий не может исказить состояние извне."""
+        with self._lock:
+            return [dict(t) for t in self._tasks]
+
+    @staticmethod
+    def _check_text(text: str) -> str:
+        text = (text or "").strip()
+        if not text:
+            raise ValueError("задача пустая")
+        if len(text) > TaskManager._MAX_LEN:
+            raise ValueError(f"слишком длинная задача (макс. {TaskManager._MAX_LEN})")
+        return text
+
+    def add(self, text: str) -> dict:
+        text = self._check_text(text)
+        with self._lock:
+            if len(self._tasks) >= self._MAX_TASKS:
+                raise ValueError(f"задач уже {self._MAX_TASKS} — уберите лишние")
+            task = {"id": self._next_id, "text": text}
+            self._next_id += 1
+            self._tasks.append(task)
+            self._save()
+        self._on_change(self.list())
+        return dict(task)
+
+    def update(self, task_id: int, text: str) -> dict:
+        text = self._check_text(text)
+        with self._lock:
+            task = next((t for t in self._tasks if t["id"] == task_id), None)
+            if task is None:
+                raise KeyError(task_id)
+            task["text"] = text
+            self._save()
+        self._on_change(self.list())
+        return dict(task)
+
+    def remove(self, task_id: int) -> None:
+        with self._lock:
+            for index, task in enumerate(self._tasks):
+                if task["id"] == task_id:
+                    del self._tasks[index]
+                    self._save()
+                    break
+            else:
+                raise KeyError(task_id)
+        self._on_change(self.list())
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +362,8 @@ class AppState:
             data_dir / "profile.json", self._on_profile_change
         )
         self.bcast = Broadcaster()
+        # после bcast: колбэк задач шлёт рассылку по WS
+        self.tasks = TaskManager(data_dir / "tasks.json", self._on_tasks_change)
 
         # флаги P0
         self.emergency = False
@@ -335,6 +438,9 @@ class AppState:
     def _on_voice_partial(self, e: VoicePartialEvent) -> None:
         self.voice_partial = {"text": e.text, "final": e.final}
         self.bcast.push("voice_partial", self.voice_partial)
+        # команда задач по голосу: открыть панель с актуальным списком
+        if e.final and parse_task_command(e.text):
+            self.bcast.push("tasks_open", {"text": e.text})
 
     def _on_voice_command(self, e: VoiceCommandEvent) -> None:
         self.last_command = {
@@ -486,6 +592,10 @@ class AppState:
             "assist": profile.assist,
         })
 
+    def _on_tasks_change(self, tasks: list[dict]) -> None:
+        """Задачи изменились (голос или веб) → свежий список всем клиентам."""
+        self.bcast.push("tasks", {"tasks": tasks})
+
     # ------------------------------------------------------------------
     # Снимок состояния (GET /api/status + WS snapshot)
     # ------------------------------------------------------------------
@@ -512,5 +622,6 @@ class AppState:
             "mic_muted": self.mic_muted,
             "tts_enabled": self.tts_enabled,
             "voice_model_ok": self.voice_model_ok,
+            "tasks": self.tasks.list(),
             "audit": self.audit.tail(30),
         }

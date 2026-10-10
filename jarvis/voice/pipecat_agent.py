@@ -35,6 +35,7 @@ from jarvis.core.events import (
 )
 from jarvis.core.service import BaseService
 from jarvis.voice.commands import parse_command
+from jarvis.voice.tasks_rule import parse_task_command, run, HttpTaskAPI
 from jarvis.voice.web_search import maybe_web_search, needs_web_search
 
 log = logging.getLogger("jarvis.voice.pipecat")
@@ -423,6 +424,13 @@ def _make_search_router_class():
 
             if isinstance(frame, TranscriptionFrame):
                 text = (frame.text or "").strip()
+                if text:
+                    # команда задач — детерминированный ответ мимо LLM
+                    cmd = parse_task_command(text)
+                    if cmd is not None:
+                        self._turn["query"] = text
+                        self._start_task(self._task_and_speak(text))
+                        return  # ответ задач сам закроет ход
                 if text and self._web_search_enabled and needs_web_search(text):
                     self._turn["query"] = text
                     self._start_task(self._search_and_speak(text))
@@ -535,6 +543,44 @@ def _make_search_router_class():
                 )
             except Exception:
                 log.exception("BotReplyEvent publish упал")
+            await self.push_frame(
+                TTSSpeakFrame(answer, append_to_context=False),
+                FrameDirection.DOWNSTREAM,
+            )
+            await self._finish_turn()
+
+        async def _task_and_speak(self, text: str) -> None:
+            from time import perf_counter
+
+            t0 = perf_counter()
+            try:
+                answer = await asyncio.to_thread(
+                    run, parse_task_command(text), HttpTaskAPI()
+                )
+            except asyncio.CancelledError:
+                self._searching = False
+                self._pending_stop = None
+                raise
+            except Exception:
+                log.exception("голос(задача): упало: %s", text)
+                answer = "Панель задач недоступна."
+
+            dt_ms = int((perf_counter() - t0) * 1000)
+            self._searching = False
+
+            log.info(
+                "голос(задача): ответ за %d мс → TTS | %s",
+                dt_ms, (answer or "")[:120],
+            )
+            if not answer:
+                await self._finish_turn()
+                return
+            try:
+                self._bus.publish(
+                    BotReplyEvent(text=answer, query=text, source="task")
+                )
+            except Exception:
+                log.exception("BotReplyEvent (task) publish упал")
             await self.push_frame(
                 TTSSpeakFrame(answer, append_to_context=False),
                 FrameDirection.DOWNSTREAM,

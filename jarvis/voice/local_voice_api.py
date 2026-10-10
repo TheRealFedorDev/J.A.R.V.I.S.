@@ -21,7 +21,7 @@ import os
 import threading
 import wave
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Iterable
 
 import av
 import edge_tts
@@ -52,20 +52,46 @@ TTS_RATE = os.environ.get("TTS_RATE", "+0%")
 
 TARGET_RATE = 16000
 
-# Подсказка для whisper: задаёт орфографию, пунктуацию и лексику. На коротких
-# репликах без неё base- модель гасит имена собственные и путает «Пётр Первый».
-WHISPER_PROMPT = (
-    "Берта — голосовой помощник. Отвечает по-русски, кратко и по делу."
-    " Распознанные реплики пользователя: Кем был Пётр Первый? "
-    "Что такое эмбеддинг? Сколько будет стоить доставка? "
-    "Открой поиск и найди последние новости."
-)
+# Краткая подсказка whisper: защищает имя «Берта» и русскую орфографию.
+# Без неё base-модель на коротких репликах гасит имена собственные.
+WHISPER_PROMPT = "Берта."
+
+# Сегмент считается «фантомом» (whisper озвучил тишину/шум), если его
+# no_speech_prob не ниже порога. На уровне 0.6 отсеиваются галлюцинации
+# на паузах («Берта.», «Стоять стеки…»), а живая короткая речь обычно
+# держит no_speech_prob < 0.2 и проходит.
+NO_SPEECH_KEEP = 0.6
 
 app = FastAPI(title="Berta local voice API", docs_url=None, redoc_url=None)
 
 _model: Any = None
 _model_lock = threading.Lock()
 _stt_lock = asyncio.Lock()
+
+
+class _SegmentLike:
+    """Объект с .text/.no_speech_prob — любой сегмент faster-whisper."""
+
+
+def _filter_and_join_segments(
+    segments: Iterable[_SegmentLike], *, no_speech_keep: float = NO_SPEECH_KEEP
+) -> str:
+    """Выкинуть фантомы тишины/шума и собрать текст реплики.
+
+    faster-whisper сам оценивает, была ли в сегменте речь (no_speech_prob).
+    Без этого фильтра модель озвучивает паузу мусором вроде «Берта.», и он
+    уходит в LLM/web-поиск, а ответ выходит белебердой.
+    """
+    parts: list[str] = []
+    for segment in segments:
+        text = (segment.text or "").strip()
+        # 1 символ (или пусто) без смысла («ы», «а») — почти всегда шум
+        if len(text) < 2:
+            continue
+        if float(getattr(segment, "no_speech_prob", 0.0)) >= no_speech_keep:
+            continue
+        parts.append(text)
+    return " ".join(parts).strip()
 
 
 def _get_model() -> Any:
@@ -168,7 +194,7 @@ def _transcribe(samples: np.ndarray) -> str:
         repetition_penalty=1.05,
         no_speech_threshold=0.6,
     )
-    return " ".join(segment.text.strip() for segment in segments).strip()
+    return _filter_and_join_segments(segments)
 
 
 @app.get("/health")
@@ -229,6 +255,25 @@ async def websearch(payload: dict[str, Any]) -> JSONResponse:
     if not query:
         return JSONResponse({"answer": ""})
     return JSONResponse({"answer": await web_search_answer(query)})
+
+
+@app.post("/voicecmd")
+async def voicecmd(payload: dict[str, Any]) -> JSONResponse:
+    """Задачи: спрашивает livekit-агент (отдельный venv без jarvis).
+
+    Возвращает matched=True, если фраза — голосовая команда задач; тогда
+    answer готов к озвучке, и агент не уходит в LLM.
+    """
+    from jarvis.voice.tasks_rule import parse_task_command, run, HttpTaskAPI
+
+    text = (payload.get("text") or "").strip()
+    if not text:
+        return JSONResponse({"matched": False, "answer": ""})
+    cmd = parse_task_command(text)
+    if cmd is None:
+        return JSONResponse({"matched": False, "answer": ""})
+    answer = await asyncio.to_thread(run, cmd, HttpTaskAPI())
+    return JSONResponse({"matched": True, "answer": answer})
 
 
 @app.post("/v1/audio/speech")

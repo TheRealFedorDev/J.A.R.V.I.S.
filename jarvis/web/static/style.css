@@ -707,6 +707,172 @@ body.profile-assist .orb-float { animation-duration: 4s; }
 }
 .toast[hidden] { display: none; }
 
+/* ══════════ ЗАДАЧИ ══════════ */
+.task-toggle {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 50;
+  padding: 12px 17px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow);
+}
+.task-toggle:hover { filter: brightness(1.15); }
+
+.task-panel {
+  position: fixed;
+  left: 18px;
+  bottom: 74px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: min(440px, calc(100vw - 36px));
+  max-height: min(70vh, 620px);
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow);
+}
+.task-panel[hidden] { display: none; }
+
+.task-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.task-title { font-weight: 800; letter-spacing: 1px; }
+.task-count {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 800;
+}
+.task-close {
+  margin-left: auto;
+  transform: translate(-5px, -5px);
+  width: 26px; height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+.task-close:hover { color: var(--text); border-color: var(--accent); }
+
+/* Список прокручивается, сама строка — никогда: текст растёт вниз. */
+.task-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  list-style: none;
+  margin: 0;
+  padding: 2px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 3px;
+  border-bottom: 1px dashed var(--line);
+}
+.task-row:last-child { border-bottom: none; }
+
+.task-idx {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ни ellipsis, ни line-clamp: длинная задача удлиняется вниз. */
+.task-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  line-height: 1.45;
+}
+
+.task-btn {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.task-btn:hover { color: var(--text); border-color: var(--accent); }
+.task-btn.task-btn-danger:hover { color: var(--danger); border-color: var(--danger); }
+.task-btn.task-ok { color: var(--ok); border-color: var(--ok); }
+.task-btn.task-no { color: var(--danger); border-color: var(--danger); }
+
+/* Правка: textarea подстраивается под текст, а не ограничивает его. */
+.task-edit {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 2.4em;
+  padding: 4px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.45;
+  resize: none;
+  overflow: hidden;
+}
+
+.task-empty { margin: 12px 3px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.task-empty[hidden] { display: none; }
+
+.task-form {
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.task-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-2);
+  color: var(--text);
+  font: inherit;
+}
+.task-input:focus { outline: none; border-color: var(--accent); }
+.task-submit {
+  flex: 0 0 auto;
+  padding: 9px 13px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+.task-submit:hover { background: var(--accent); color: var(--bg); }
+
+body.profile-assist .task-toggle { font-size: 15px; padding: 14px 20px; }
+body.profile-assist .task-btn { font-size: 14px; padding: 6px 10px; }
+
 /* ══════════ ПРОФИЛЬ «АССИСТ» — крупный UI (ТЗ §4.2) ══════════ */
 body.profile-assist { font-size: 18px; }
 body.profile-assist .bubble { font-size: 18px; padding: 15px 19px; }

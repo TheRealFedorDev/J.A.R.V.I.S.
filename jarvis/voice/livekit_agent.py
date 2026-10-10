@@ -12,6 +12,9 @@
     TTS -> LOCAL_VOICE_URL (edge-tts)
 
 Логику разговора, прерывания (barge-in) и стриминг обеспечивает LiveKit.
+
+Команды задач (пример: «добавь задачу купить молоко») разбирает основной
+процесс через POST {LOCAL_VOICE_BASE}/voicecmd — здесь только озвучка ответа.
 """
 
 from __future__ import annotations
@@ -261,10 +264,22 @@ async def entrypoint(ctx: JobContext) -> None:
         print(f"[[ORB]]{event.new_state}", flush=True)
 
     @session.on("user_input_transcribed")
-    def _on_user_speech(event) -> None:
+    async def _on_user_speech(event) -> None:
         text = (event.transcript or "").strip()
-        if text:
-            print(f"[[SAID]]{text}", flush=True)
+        if not text:
+            return
+        print(f"[[SAID]]{text}", flush=True)
+        # Команда задач? Ответ готовит основной процесс (там jarvis).
+        try:
+            resp = await _get_search_client().post(
+                f"{LOCAL_VOICE_BASE}/voicecmd", json={"text": text}
+            )
+            data = resp.json()
+        except Exception:
+            data = {}
+        if data.get("matched"):
+            print("[[ORB]]speaking", flush=True)
+            await session.say(data.get("answer") or "", add_to_chat_ctx=True)
 
     await session.start(agent=agent, room=ctx.room)
     await session.generate_reply(instructions="Поздоровайся и спроси, чем помочь.")

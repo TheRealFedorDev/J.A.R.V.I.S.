@@ -45,6 +45,14 @@ const el = {
   confirmYes: $("confirmYes"),
   confirmNo: $("confirmNo"),
   toast: $("toast"),
+  taskToggleBtn: $("taskToggleBtn"),
+  taskPanel: $("taskPanel"),
+  taskCloseBtn: $("taskCloseBtn"),
+  taskList: $("taskList"),
+  taskCount: $("taskCount"),
+  taskEmpty: $("taskEmpty"),
+  taskForm: $("taskForm"),
+  taskInput: $("taskInput"),
 };
 
 /* ═══════════ СОСТОЯНИЕ ═══════════ */
@@ -61,6 +69,7 @@ const state = {
   lastPartialAt: 0,
   finalHoldUntil: 0,    // игнор interim-частичек после финала
   awaitingReply: false, // ждём ответа — не гасить плашку «ФРАЗА»
+  tasks: null,          // список задач; null = ещё не приходил по WS
 };
 
 /* ═══════════ ТОСТ ═══════════ */
@@ -306,7 +315,12 @@ el.profileTabs.addEventListener("click", (e) => {
 });
 
 /* ═══════════ КАМЕРА: КАДР + СКЕЛЕТ ═══════════ */
-const ctx = el.skelCanvas.getContext("2d");
+// skelCanvas может отсутствовать (index.html без камеры): заглушка $() вернёт
+// <div> без getContext. Такая строка УБИВАЕТ весь скрипт — ниже не привяжутся
+// обработчики задач/микрофона/микши и не подключится WebSocket.
+const ctx = typeof el.skelCanvas.getContext === "function"
+  ? el.skelCanvas.getContext("2d")
+  : null;
 let handLandmarks = null;
 let camHiddenSince = 0;
 
@@ -322,6 +336,7 @@ const HAND_CONNECTIONS = [
 function drawSkeleton() {
   const c = el.skelCanvas;
   const stage = el.camStage;
+  if (!ctx || !c || !stage) return;
   if (c.width !== stage.clientWidth || c.height !== stage.clientHeight) {
     c.width = stage.clientWidth;
     c.height = stage.clientHeight;
@@ -578,6 +593,184 @@ function updateEmergency() {
   refreshBaseStatus();
 }
 
+/* ═══════════ ЗАДАЧИ ═══════════
+   Строки нумеруются с 1 (голос скажет «удали задачу два»). Текст никогда не
+   обрезается: white-space/overflow-wrap в CSS, а высота строки растёт вниз. */
+function toggleTasks(force) {
+  const open = force !== undefined ? force : el.taskPanel.hidden;
+  el.taskPanel.hidden = !open;
+  el.taskToggleBtn.setAttribute("aria-expanded", String(open));
+  if (open) {
+    if (state.tasks === null) loadTasks();
+    else el.taskInput.focus();
+  }
+}
+
+function loadTasks() {
+  fetch("/api/tasks")
+    .then((r) => r.json())
+    .then((d) => renderTasks(d.tasks || []))
+    .catch(() => toast("Не удалось загрузить задачи"));
+}
+
+function renderTasks(tasks) {
+  state.tasks = Array.isArray(tasks) ? tasks : [];
+  el.taskList.textContent = "";
+  el.taskCount.textContent = String(state.tasks.length);
+  el.taskEmpty.hidden = state.tasks.length > 0;
+
+  state.tasks.forEach((task, i) => {
+    const li = document.createElement("li");
+    li.className = "task-row";
+    li.dataset.id = String(task.id);
+
+    const idx = document.createElement("span");
+    idx.className = "task-idx";
+    idx.textContent = `${i + 1}.`;
+
+    const text = document.createElement("span");
+    text.className = "task-text";
+    text.textContent = task.text;   // не innerHTML: текст приходит снаружи
+
+    const btnEdit = document.createElement("button");
+    btnEdit.className = "task-btn";
+    btnEdit.type = "button";
+    btnEdit.textContent = "изменить";
+    btnEdit.addEventListener("click", () => beginTaskEdit(li, i + 1, task));
+
+    const btnDel = document.createElement("button");
+    btnDel.className = "task-btn task-btn-danger";
+    btnDel.type = "button";
+    btnDel.textContent = "удалить";
+    btnDel.addEventListener("click", () => deleteTask(task));
+
+    li.append(idx, text, btnEdit, btnDel);
+    el.taskList.appendChild(li);
+  });
+}
+
+function patchTask(id, text) {
+  return fetch(`/api/tasks/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  }).then((r) => r.json());
+}
+
+function deleteTask(task) {
+  fetch(`/api/tasks/${task.id}`, { method: "DELETE" })
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d.ok) {
+        toast(d.detail || "Не удалось удалить");
+        return;
+      }
+      loadTasks();
+      toast("Задача удалена");
+    });
+}
+
+/* Правка на месте: кнопки строки заменяются на ✓/✕, текст — на растущий вниз
+   textarea. renderTasks перестраивает строку, поэтому слушатели не копятся. */
+function beginTaskEdit(li, number, task) {
+  li.classList.add("editing");
+  li.textContent = "";
+
+  const idx = document.createElement("span");
+  idx.className = "task-idx";
+  idx.textContent = `${number}.`;
+
+  const area = document.createElement("textarea");
+  area.className = "task-edit";
+  area.value = task.text;
+  area.rows = 1;
+  area.addEventListener("input", () => autoGrowTask(area));
+  area.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      save();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancel();
+    }
+  });
+
+  const btnOk = document.createElement("button");
+  btnOk.className = "task-btn task-ok";
+  btnOk.type = "button";
+  btnOk.textContent = "✓";
+  btnOk.title = "Сохранить (Enter)";
+  btnOk.addEventListener("click", save);
+
+  const btnCancel = document.createElement("button");
+  btnCancel.className = "task-btn task-no";
+  btnCancel.type = "button";
+  btnCancel.textContent = "✕";
+  btnCancel.title = "Отменить (Esc)";
+  btnCancel.addEventListener("click", cancel);
+
+  function cancel() {
+    renderTasks(state.tasks);
+  }
+
+  function save() {
+    const value = area.value.trim();
+    if (!value) {
+      toast("Задача не может быть пустой");
+      return;
+    }
+    if (value === task.text) {
+      cancel();
+      return;
+    }
+    patchTask(task.id, value).then((d) => {
+      if (!d.ok) {
+        toast(d.detail || "Не удалось сохранить");
+        return;
+      }
+      loadTasks();
+      toast("Сохранено");
+    });
+  }
+
+  li.append(idx, area, btnOk, btnCancel);
+  area.focus();
+  area.setSelectionRange(area.value.length, area.value.length);
+  autoGrowTask(area);
+}
+
+/* Высота под содержимое: строка удлиняется вниз, а не сжимается/обрезается */
+function autoGrowTask(area) {
+  area.style.height = "auto";
+  area.style.height = `${area.scrollHeight}px`;
+}
+
+el.taskToggleBtn.addEventListener("click", () => toggleTasks());
+el.taskCloseBtn.addEventListener("click", () => toggleTasks(false));
+el.taskForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const value = el.taskInput.value.trim();
+  if (!value) return;
+  fetch("/api/tasks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: value }),
+  })
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d.ok) {
+        toast(d.detail || "Не удалось добавить");
+        return;
+      }
+      el.taskInput.value = "";
+      // Не дописываем d.task локально: сервер уже разослал актуальный список
+      // по WS («tasks»), и запоздавший renderTasks из-за гонки дублировал
+      // только что добавленную задачу (см. «изменяю — второй исчезает»).
+      loadTasks();
+      el.taskInput.focus();
+    });
+});
+
 /* ═══════════ МИКРОФОН / TTS / ТЕМА ═══════════ */
 el.micBtn.addEventListener("click", () => {
   post("/api/mic", { enabled: !state.mic }).then((d) => {
@@ -663,6 +856,7 @@ function routeWS(msg) {
       updateCursorBtn();
       updateEmergency();
       renderAudit(d.audit || []);
+      if (d.tasks) renderTasks(d.tasks);
       if (d.hand) handleHand(d.hand);
       if (d.gaze) handleGaze(d.gaze);
       refreshBaseStatus(d.tracker);
@@ -695,6 +889,15 @@ function routeWS(msg) {
 
     case "hand":
       handleHand(d);
+      break;
+
+    case "tasks":
+      renderTasks(d.tasks);
+      break;
+
+    case "tasks_open":
+      toggleTasks(true);
+      loadTasks();
       break;
 
     case "voice_partial":
