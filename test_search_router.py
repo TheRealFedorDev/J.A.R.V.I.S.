@@ -91,6 +91,60 @@ async def _feed(router, frame):
 # ---------------------------------------------------------------------------
 # путь по умолчанию: локальный LLM
 # ---------------------------------------------------------------------------
+def test_task_command_bypasses_llm():
+    """Команда задач -> детерминированный ответ -> TTS, LLM не стартует."""
+    SearchRouter = _make_search_router_class()
+    bus = EventBus()
+    replies: list[BotReplyEvent] = []
+    bus.subscribe(BotReplyEvent, replies.append)
+    turn: dict[str, str] = {"query": ""}
+    router = SearchRouter(bus, turn)
+    pushed: list = []
+    tasks: list[asyncio.Task] = []
+    _wire(router, pushed, tasks)
+    started, release = _stub_llm(router)
+
+    async def scenario():
+        await _feed(router, _tx("добавь задачу купить молоко"))
+        assert router._searching is True
+        await _feed(router, UserStoppedSpeakingFrame())
+        await asyncio.sleep(0.05)
+        release.set()
+        await asyncio.gather(*tasks)
+
+    _run(scenario())
+
+    assert turn["query"] == "добавь задачу купить молоко"
+    assert not started.is_set(), "команда задач не должна идти в LLM"
+    assert any(isinstance(f, TTSSpeakFrame) for f in pushed)
+    assert replies and replies[0].source == "task"
+    assert not any(isinstance(f, TranscriptionFrame) for f in pushed)
+    assert isinstance(pushed[-1], UserStoppedSpeakingFrame)
+
+
+def test_plain_task_talk_is_not_a_command():
+    """Разговор, где нет слова «задач», уходит в LLM, а не в задачник."""
+    SearchRouter = _make_search_router_class()
+    bus = EventBus()
+    turn: dict[str, str] = {"query": ""}
+    router = SearchRouter(bus, turn)
+    pushed: list = []
+    tasks: list[asyncio.Task] = []
+    _wire(router, pushed, tasks)
+    started, release = _stub_llm(router)
+
+    async def scenario():
+        await _feed(router, _tx("расскажи про планеты"))
+        await _wait_started(started)
+        release.set()
+        await asyncio.gather(*tasks)
+
+    _run(scenario())
+
+    assert turn["query"] == "расскажи про планеты"
+    assert started.is_set()
+
+
 def test_plain_question_goes_to_local_llm():
     SearchRouter = _make_search_router_class()
     bus = EventBus()

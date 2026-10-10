@@ -1,37 +1,50 @@
-# J.A.R.V.I.S. — подсистема взгляда (этап 1)
-# Python 3.10+ (виртуальное окружение создавалось как: python -m venv --system-site-packages .venv)
+# J.A.R.V.I.S. — зависимости основного окружения (.venv)
+#
+# Создание:
+#   python -m venv .venv
+#   .venv\Scripts\python.exe -m pip install -r requirements.txt
+#
+# Для голосового агента LiveKit окружение отдельное (живёт под Python 3.11):
+#   py -3.11 -m venv .venv-livekit
+#   .venv-livekit\Scripts\python.exe -m pip install -r requirements-livekit.txt
 
-# --- Ядро обработки изображений и ML (уже есть в системном Python) ---
-# opencv-python
-# numpy
-# mediapipe
-# scikit-learn
-# scipy
-
-# --- Зависимости проекта ---
-screeninfo
-pynput
-PyQt6
-
-# --- Голос: потоковый TTS + STT ---
-edge-tts>=7.0          # синтез: стрим mp3-чанков (neural голоса EN/RU)
-sounddevice>=0.5       # playback (callback PortAudio) + захват микрофона
-av>=12.0               # инкрементальный декод mp3 → PCM
-faster-whisper>=1.2    # STT large-v3: стриминг + partial (по умолчанию)
-vosk>=0.3.45           # офлайн-STT фоллбэк (VOICE_ASR=vosk)
-pyttsx3                # офлайн-фоллбэк TTS (SAPI5)
-
-# --- Web-панель Berta (по умолчанию python main.py) ---
+# --- Ядро ---
 fastapi>=0.110         # HTTP/WS API панели
 uvicorn>=0.27          # ASGI-сервер
 websockets>=12         # realtime-события шины → браузер
-ollama>=0.4            # локальная LLM (llama3.2 / mistral) с фоллбэком на правила
 
-# --- Pipecat: разговорный контур VOICE_AGENT=pipecat (STT→LLM→TTS, barge-in) ---
-pipecat-ai[local,whisper]>=1.11  # Silero VAD + Ollama + faster-whisper + PyAudio
-httpx>=0.27               # быстрый веб-поиск (DDG/Wikipedia/open-meteo)
+# --- Голос: STT ---
+faster-whisper>=1.2    # основной STT; на CUDA ставит large-v3 (см. README)
+vosk>=0.3.45           # офлайн-STT запасной вариант (VOICE_ASR=vosk)
 
-# --- EyeTrax (локальная библиотека из libs/) ---
-# Установка: pip install --no-deps ./libs/EyeTrax-master/EyeTrax-master
-# (остальные deps берутся из системного окружения; numpy<2 недоступен на Python 3.13,
-#  но EyeTrax 0.4.0 работает и с numpy 2.x, проверено)
+# --- Голос: TTS ---
+edge-tts>=7.0          # синтез: стрим mp3-чанков (neural голоса EN/RU)
+av>=12.0               # декод mp3 → PCM
+sounddevice>=0.5       # воспроизведение и захват микрофона
+pyttsx3                # офлайн-TTS запасной вариант (SAPI5), интернет не нужен
+
+# --- LLM ---
+ollama>=0.4            # локальная LLM (llama3.2 / mistral)
+httpx>=0.27            # стриминг OpenAI-совместимых облачных провайдеров
+
+# --- Ввод: курсор и рука-мышь ---
+screeninfo
+pynput
+PyQt6                  # оверлей PyQt6 (main.py --overlay)
+
+# =========================================================================
+# Опционально: подсистема взгляда и рука-мышь
+# =========================================================================
+# Требует OpenCV, mediapipe, scikit-learn, numpy. Без них работает всё,
+# кроме GAZE_ENABLED=True / HAND_ENABLED=True — по умолчанию обе выключены.
+#   .venv\Scripts\python.exe -m pip install opencv-python mediapipe scikit-learn scipy
+#
+# EyeTrax — внешняя библиотека, лежит в libs/, а libs/ не в Git. На новой
+# машине её нужно положить рядом с репозиторием:
+#   git clone https://github.com/schuilders/EyeTrax libs/EyeTrax-master
+#   .venv\Scripts\python.exe -m pip install --no-deps ./libs/EyeTrax-master
+# Остальные зависимости EyeTrax берутся из системного окружения. numpy<2
+# недоступен на Python 3.13, но EyeTrax 0.4.0 работает и с numpy 2.x.
+#
+# PyTorch для CUDA ставится отдельно под версию драйвера:
+#   https://pytorch.org/get-started/locally/

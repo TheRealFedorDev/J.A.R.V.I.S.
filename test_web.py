@@ -219,6 +219,32 @@ def test_router_empty(router):
     assert "Пустая" in res.reply
 
 
+def test_voice_partial_plain_no_tasks_event(state):
+    from jarvis.core.events import VoicePartialEvent
+
+    pushed = []
+    state.bcast.push = lambda *a, **k: pushed.append(a)  # type: ignore[method-assign]
+    state.bus.publish(VoicePartialEvent(text="привет", final=True))
+    assert not any(msg for msg in pushed if msg and msg[0] == "tasks_open")
+
+
+def test_voice_partial_task_command_pushes_tasks_open(state):
+    from jarvis.core.events import VoicePartialEvent
+
+    pushed = []
+    state.bcast.push = lambda *a, **k: pushed.append(a)  # type: ignore[method-assign]
+    state.bus.publish(
+        VoicePartialEvent(text="добавь задачу купить молоко", final=True)
+    )
+    assert any(msg and msg[0] == "tasks_open" for msg in pushed)
+    # промежуточная часть фразы панель не открывает
+    state.bus.publish(
+        VoicePartialEvent(text="добавь задачу купить молоко", final=False)
+    )
+    opens = [m for m in pushed if m and m[0] == "tasks_open"]
+    assert len(opens) == 1
+
+
 # ---------------------------------------------------------------------------
 # HTTP API (TestClient)
 # ---------------------------------------------------------------------------

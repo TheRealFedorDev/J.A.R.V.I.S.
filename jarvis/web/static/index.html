@@ -52,9 +52,34 @@
     <span>СТОП</span>
   </button>
 
+  <!-- ══════════ ЗАДАЧИ ══════════ -->
+  <button class="task-toggle" id="taskToggleBtn" aria-expanded="false"
+          aria-controls="taskPanel" title="Список задач">
+    <span>ЗАДАЧИ</span>
+  </button>
+
+  <section class="task-panel" id="taskPanel" aria-label="Задачи" hidden>
+    <header class="task-head">
+      <span class="task-title">Задачи</span>
+      <span class="task-count" id="taskCount">0</span>
+      <button class="task-close" id="taskCloseBtn" title="Свернуть"
+              aria-label="Свернуть">×</button>
+    </header>
+
+    <ol class="task-list" id="taskList"></ol>
+    <p class="task-empty" id="taskEmpty">Пока пусто. Скажите
+      «Берта, добавь задачу …» или впишите ниже.</p>
+
+    <form class="task-form" id="taskForm">
+      <input class="task-input" id="taskInput" type="text" maxlength="500"
+             placeholder="Новая задача" autocomplete="off">
+      <button class="task-submit" type="submit">Добавить</button>
+    </form>
+  </section>
+
   <div class="toast" id="toast" hidden></div>
 
-  <script src="/static/app.js?v=20260929g"></script>
-  <script src="/static/orb.js?v=20260929g"></script>
+  <script src="/static/app.js?v=20261008b"></script>
+  <script src="/static/orb.js?v=20261008b"></script>
 </body>
 </html>

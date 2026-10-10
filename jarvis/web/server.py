@@ -44,6 +44,10 @@ class EnabledIn(BaseModel):
     enabled: bool
 
 
+class TaskIn(BaseModel):
+    text: str
+
+
 # ---------------------------------------------------------------------------
 # Фабрика приложения
 # ---------------------------------------------------------------------------
@@ -149,7 +153,23 @@ def create_app(state) -> FastAPI:
     # ------------------------------------------------------------------
     @app.get("/api/status")
     async def status() -> dict:
-        return state.snapshot()
+        from jarvis.core.backends import describe
+
+        payload = state.snapshot()
+        provider = state.router.llm_provider() if state.router else None
+        payload["backends"] = describe()
+        payload["backends"]["llm"]["active"] = str(provider) if provider else None
+        return payload
+
+    @app.get("/api/backends")
+    async def backends() -> dict:
+        """Железо, выбранные модели и цепочки провайдеров с фоллбэком."""
+        from jarvis.core.backends import describe
+
+        payload = describe()
+        provider = state.router.llm_provider() if state.router else None
+        payload["llm"]["active"] = str(provider) if provider else None
+        return payload
 
     @app.get("/api/health")
     async def health() -> dict:
@@ -182,6 +202,42 @@ def create_app(state) -> FastAPI:
             )
         return {"current": profile.id, "title": profile.title,
                 "assist": profile.assist}
+
+    # ------------------------------------------------------------------
+    # Задачник (правило, а не LLM): список, добавление, правка, удаление
+    # ------------------------------------------------------------------
+    @app.get("/api/tasks")
+    async def get_tasks() -> dict:
+        return {"tasks": state.tasks.list()}
+
+    @app.post("/api/tasks")
+    async def add_task(body: TaskIn) -> dict:
+        try:
+            task = state.tasks.add(body.text)
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=400)
+        state.audit.add("web", "task_add", detail=task["text"])
+        return {"ok": True, "task": task}
+
+    @app.patch("/api/tasks/{task_id}")
+    async def update_task(task_id: int, body: TaskIn) -> dict:
+        try:
+            task = state.tasks.update(task_id, body.text)
+        except KeyError:
+            return JSONResponse({"detail": "task not found"}, status_code=404)
+        except ValueError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=400)
+        state.audit.add("web", "task_update", detail=task["text"])
+        return {"ok": True, "task": task}
+
+    @app.delete("/api/tasks/{task_id}")
+    async def delete_task(task_id: int) -> dict:
+        try:
+            state.tasks.remove(task_id)
+        except KeyError:
+            return JSONResponse({"detail": "task not found"}, status_code=404)
+        state.audit.add("web", "task_delete", detail=str(task_id))
+        return {"ok": True}
 
     @app.post("/api/command")
     async def command(body: CommandIn) -> dict:

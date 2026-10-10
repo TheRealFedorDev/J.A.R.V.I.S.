@@ -21,7 +21,7 @@ import os
 import threading
 import wave
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Iterable
 
 import av
 import edge_tts
@@ -29,6 +29,7 @@ import numpy as np
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from jarvis.core.backends import resolve_stt
 from jarvis.core.config import AppConfig
 from jarvis.core.logging import setup_logging
 from jarvis.tts.voices import DEFAULT_EN_VOICE, DEFAULT_RU_VOICE, is_russian
@@ -37,6 +38,9 @@ log = logging.getLogger("voice.local_api")
 
 CONFIG = AppConfig.load(Path(".env"))
 VOICE = CONFIG.voice
+# План STT считаем один раз при импорте: он читает железо через nvidia-smi,
+# а модель грузится лениво при первом запросе.
+STT_PLAN = resolve_stt()
 
 HOST = os.environ.get("LOCAL_VOICE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("LOCAL_VOICE_PORT", "8077"))
@@ -48,11 +52,46 @@ TTS_RATE = os.environ.get("TTS_RATE", "+0%")
 
 TARGET_RATE = 16000
 
+# Краткая подсказка whisper: защищает имя «Берта» и русскую орфографию.
+# Без неё base-модель на коротких репликах гасит имена собственные.
+WHISPER_PROMPT = "Берта."
+
+# Сегмент считается «фантомом» (whisper озвучил тишину/шум), если его
+# no_speech_prob не ниже порога. На уровне 0.6 отсеиваются галлюцинации
+# на паузах («Берта.», «Стоять стеки…»), а живая короткая речь обычно
+# держит no_speech_prob < 0.2 и проходит.
+NO_SPEECH_KEEP = 0.6
+
 app = FastAPI(title="Berta local voice API", docs_url=None, redoc_url=None)
 
 _model: Any = None
 _model_lock = threading.Lock()
 _stt_lock = asyncio.Lock()
+
+
+class _SegmentLike:
+    """Объект с .text/.no_speech_prob — любой сегмент faster-whisper."""
+
+
+def _filter_and_join_segments(
+    segments: Iterable[_SegmentLike], *, no_speech_keep: float = NO_SPEECH_KEEP
+) -> str:
+    """Выкинуть фантомы тишины/шума и собрать текст реплики.
+
+    faster-whisper сам оценивает, была ли в сегменте речь (no_speech_prob).
+    Без этого фильтра модель озвучивает паузу мусором вроде «Берта.», и он
+    уходит в LLM/web-поиск, а ответ выходит белебердой.
+    """
+    parts: list[str] = []
+    for segment in segments:
+        text = (segment.text or "").strip()
+        # 1 символ (или пусто) без смысла («ы», «а») — почти всегда шум
+        if len(text) < 2:
+            continue
+        if float(getattr(segment, "no_speech_prob", 0.0)) >= no_speech_keep:
+            continue
+        parts.append(text)
+    return " ".join(parts).strip()
 
 
 def _get_model() -> Any:
@@ -63,20 +102,18 @@ def _get_model() -> Any:
             if _model is None:
                 from faster_whisper import WhisperModel
 
-                device = VOICE.whisper_device
-                if device == "auto":
-                    device = "cpu"
+                plan = STT_PLAN
                 log.info(
-                    "Загружаю faster-whisper: model=%s device=%s compute=%s lang=%s",
-                    VOICE.whisper_model,
-                    device,
-                    VOICE.whisper_compute_type,
+                    "Загружаю faster-whisper: model=%s device=%s compute=%s "
+                    "lang=%s (модель:%s девайс:%s)",
+                    plan.model, plan.device, plan.compute_type,
                     VOICE.whisper_language,
+                    plan.model_source, plan.device_source,
                 )
                 _model = WhisperModel(
-                    VOICE.whisper_model,
-                    device=device,
-                    compute_type=VOICE.whisper_compute_type,
+                    plan.model,
+                    device=plan.device,
+                    compute_type=plan.compute_type,
                 )
     return _model
 
@@ -146,18 +183,27 @@ def _transcribe(samples: np.ndarray) -> str:
     segments, _info = _get_model().transcribe(
         samples,
         language=VOICE.whisper_language,
-        beam_size=1,
+        beam_size=5,
         # без этого whisper способен зациклиться и «придумать» повтор
         condition_on_previous_text=False,
+        # Подсказка по стилю: уводит whisper в русскую орфографию и подтягивает
+        # имена собственные, которые на коротких репликах он иначе коверкает
+        # («Пётр Первый» -> «пылья, певый»).
+        initial_prompt=WHISPER_PROMPT,
+        # страховка от вырожденного повтора: полезнее пустая реплика, чем «я я я»
+        repetition_penalty=1.05,
+        no_speech_threshold=0.6,
     )
-    return " ".join(segment.text.strip() for segment in segments).strip()
+    return _filter_and_join_segments(segments)
 
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
     return {
         "ok": True,
-        "asr": VOICE.whisper_model,
+        "asr": STT_PLAN.model,
+        "device": STT_PLAN.device,
+        "compute_type": STT_PLAN.compute_type,
         "language": VOICE.whisper_language,
         "tts_voice": TTS_VOICE,
     }
@@ -169,7 +215,12 @@ async def models() -> dict[str, Any]:
     return {
         "object": "list",
         "data": [
-            {"id": "whisper-1", "object": "model", "created": now, "owned_by": "local"},
+            {
+                "id": STT_PLAN.model,
+                "object": "model",
+                "created": now,
+                "owned_by": "local",
+            },
             {"id": "tts-1", "object": "model", "created": now, "owned_by": "local"},
         ],
     }
@@ -204,6 +255,25 @@ async def websearch(payload: dict[str, Any]) -> JSONResponse:
     if not query:
         return JSONResponse({"answer": ""})
     return JSONResponse({"answer": await web_search_answer(query)})
+
+
+@app.post("/voicecmd")
+async def voicecmd(payload: dict[str, Any]) -> JSONResponse:
+    """Задачи: спрашивает livekit-агент (отдельный venv без jarvis).
+
+    Возвращает matched=True, если фраза — голосовая команда задач; тогда
+    answer готов к озвучке, и агент не уходит в LLM.
+    """
+    from jarvis.voice.tasks_rule import parse_task_command, run, HttpTaskAPI
+
+    text = (payload.get("text") or "").strip()
+    if not text:
+        return JSONResponse({"matched": False, "answer": ""})
+    cmd = parse_task_command(text)
+    if cmd is None:
+        return JSONResponse({"matched": False, "answer": ""})
+    answer = await asyncio.to_thread(run, cmd, HttpTaskAPI())
+    return JSONResponse({"matched": True, "answer": answer})
 
 
 @app.post("/v1/audio/speech")

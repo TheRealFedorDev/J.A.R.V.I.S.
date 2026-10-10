@@ -8,15 +8,28 @@ LLM (Ollama + llama3.2, стриминг); если LLM недоступна —
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
 import subprocess
 import threading
+import time
 import webbrowser
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Callable
 from urllib.parse import quote_plus
+
+from jarvis.core.backends import (
+    AllProvidersFailed,
+    CLOUD_PROVIDERS,
+    Provider,
+    cloud_api_key,
+    cloud_auth_headers,
+    provider_chain,
+    run_with_fallback,
+)
 
 log = logging.getLogger("jarvis.router")
 
@@ -332,78 +345,170 @@ class CommandRouter:
             return f"Ошибка: {exc}"
 
     # ==================================================================
-    # LLM (Ollama) — стриминг, фоллбэк на правила
+    # LLM: цепочка провайдеров — стриминг, фоллбэк на правила
     # ==================================================================
-    def _llm_available(self) -> bool:
-        """Сервер Ollama жив? Кэшируем ответ на 30 с (не дёргаем на каждый чих)."""
-        import time as _t
-
-        now = _t.monotonic()
-        cached = getattr(self, "_llm_cached", None)
-        if cached is not None and now - cached[0] < 30.0:
-            return cached[1]
-        ok = False
-        try:
+    def _probe_llm_provider(self, provider: Provider) -> str:
+        """Проверка доступности одного LLM-провайдера. Ошибка = он не в цепочке."""
+        if provider.name in ("ollama", "local"):
             import ollama
 
             ollama.list()
-            ok = True
-        except Exception as exc:
-            log.debug("ollama недоступна: %s", exc)
-        self._llm_cached = (now, ok)
-        return ok
+            model = provider.arg or self._llm_model
+            return f"ollama:{model}"
+        spec = CLOUD_PROVIDERS.get(provider.name)
+        if spec is None:
+            raise RuntimeError(f"неизвестный LLM-провайдер «{provider.name}»")
+        if spec.kind != "llm":
+            raise RuntimeError(f"{provider.name} — провайдер {spec.kind}, а не LLM")
+        if not cloud_api_key(provider.name):
+            raise LookupError(f"не задан {spec.env_var}")
+        if not provider.arg:
+            raise RuntimeError(f"для {provider.name} нужна модель: {provider.name}:<model>")
+        return f"{provider.name}:{provider.arg}"
+
+    def _resolve_llm_provider(self) -> Provider | None:
+        """Первый доступный провайдер из LLM_CHAIN. Кэш на 30 с.
+
+        Кэш обязателен: без него каждый запрос дёргал бы сеть проверкой.
+        """
+        now = time.monotonic()
+        cached = getattr(self, "_llm_provider_cache", None)
+        if cached is not None and now - cached[0] < 30.0:
+            return cached[1]
+        resolved: Provider | None = None
+        try:
+            result = run_with_fallback(provider_chain("llm"), self._probe_llm_provider)
+            resolved = result.provider
+            if result.degraded:
+                log.warning(
+                    "LLM: основной провайдер молчит, работаем на запасном %s",
+                    resolved,
+                )
+        except AllProvidersFailed as exc:
+            log.info("LLM-цепочка недоступна: %s", exc)
+        self._llm_provider_cache = (now, resolved)
+        return resolved
+
+    def _llm_available(self) -> bool:
+        """Доступен ли хоть один LLM-провайдер из цепочки."""
+        return self._resolve_llm_provider() is not None
+
+    def llm_provider(self) -> Provider | None:
+        """Какой провайдер ответит сейчас, None — цепочка молчит."""
+        return self._resolve_llm_provider()
+
+    def _llm_messages(self, text: str) -> list[dict[str, str]]:
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "Ты — Berta, локальный ассистент для Windows. "
+                    "Отвечай кратко, по-русски, дружелюби. "
+                    "Не используй разметку markdown."
+                ),
+            },
+            {"role": "user", "content": text},
+        ]
+
+    def _stream_chunks(
+        self, provider: Provider, messages: list[dict[str, str]]
+    ) -> Iterator[str]:
+        """Куски ответа выбранного провайдера. Исключение = переход на фоллбэк."""
+        max_tokens = int(os.environ.get("LLM_MAX_TOKENS", "220"))
+        temperature = float(os.environ.get("VOICE_LLM_TEMPERATURE", "0.0"))
+
+        if provider.name in ("ollama", "local"):
+            import ollama
+
+            with ollama.chat(
+                model=provider.arg or self._llm_model,
+                messages=messages,
+                stream=True,
+                options={"temperature": temperature, "num_predict": max_tokens},
+            ) as stream:
+                for part in stream:
+                    chunk = (part.get("message") or {}).get("content") or ""
+                    if chunk:
+                        yield chunk
+            return
+
+        spec = CLOUD_PROVIDERS.get(provider.name)
+        if spec is None:
+            raise RuntimeError(f"неизвестный LLM-провайдер «{provider.name}»")
+        if not spec.openai_compatible:
+            raise RuntimeError(f"{provider.name} не поддерживает OpenAI-совместимый API")
+
+        import httpx
+
+        url = f"{spec.base_url.rstrip('/')}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            **cloud_auth_headers(provider.name),
+        }
+        payload = {
+            "model": provider.arg,
+            "messages": messages,
+            "stream": True,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        timeout = httpx.Timeout(float(os.environ.get("LLM_TIMEOUT", "60")), connect=10.0)
+        with httpx.Client(timeout=timeout) as client:
+            with client.stream("POST", url, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        event = json.loads(data)
+                    except ValueError:
+                        continue
+                    choices = event.get("choices") or [{}]
+                    delta = choices[0].get("delta") or {}
+                    chunk = delta.get("content") or ""
+                    if chunk:
+                        yield chunk
 
     def _try_llm_route(self, text: str, source: str) -> RouteResult | None:
-        """Пробуем Ollama; недоступна → None (пойдём в fallback-правила)."""
-        try:
-            import ollama  # noqa: F401
-        except ImportError:
+        """Пробуем LLM-цепочку; недоступна — None (пойдём в fallback-правила)."""
+        if self._resolve_llm_provider() is None:
             return None
-        if not self._llm_available():
-            return None
-        # чанки уходят асинхронно через stream_llm (WS llm_chunk)
         return RouteResult(
             reply="", source="llm", stream=True,
             extra={"text": text, "source": source},
         )
 
     def stream_llm(self, text: str, source: str, on_chunk) -> str:
-        """Стримит ответ Ollama в on_chunk(str); возвращает полный текст.
+        """Стримит ответ выбранного провайдера в on_chunk(str); возвращает текст.
 
-        При недоступности LLM — синхронный fallback-правила.
+        При недоступности провайдера кэш сбрасывается, и следующий запрос
+        снова честно перебирает цепочку.
         """
+        provider = self._resolve_llm_provider()
+        if provider is None:
+            fallback = self._fallback(text, source)
+            on_chunk(fallback.reply)
+            return fallback.reply
+
         full: list[str] = []
         try:
-            import ollama
-
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "Ты — Berta, локальный ассистент для Windows. "
-                        "Отвечай кратко, по-русски, дружелюбно. "
-                        "Не используй разметку markdown."
-                    ),
-                },
-                {"role": "user", "content": text},
-            ]
             with self._llm_lock:
-                stream = ollama.chat(
-                    model=self._llm_model, messages=messages, stream=True,
-                )
-                for part in stream:
-                    chunk = (part.get("message") or {}).get("content") or ""
-                    if chunk:
-                        full.append(chunk)
-                        on_chunk(chunk)
-            answer = "".join(full)
-            self._state.audit.add(source, "llm_reply", detail=text[:120])
-            return answer
-        except Exception as exc:
-            log.info("LLM недоступна (%s) — fallback на правила", exc)
-            fb = self._fallback(text, source)
-            on_chunk(fb.reply)
-            return fb.reply
+                for chunk in self._stream_chunks(provider, self._llm_messages(text)):
+                    full.append(chunk)
+                    on_chunk(chunk)
+        except Exception as exc:  # noqa: BLE001 — провайдер упал, это ожидаемо
+            log.info("LLM %s недоступна (%s) — fallback на правила", provider, exc)
+            self._llm_provider_cache = (time.monotonic(), None)
+            fallback = self._fallback(text, source)
+            on_chunk(fallback.reply)
+            return fallback.reply
+
+        answer = "".join(full)
+        self._state.audit.add(source, "llm_reply", detail=text[:120])
+        return answer
 
     # ==================================================================
     # Известные короткие ответы и fallback-правила (ТЗ: «если LLM не
