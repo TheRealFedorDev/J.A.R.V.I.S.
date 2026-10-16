@@ -59,6 +59,14 @@ def create_app(state) -> FastAPI:
     app = FastAPI(title="Berta", version="1.0", docs_url="/api/docs")
     app.state.app_state = state
 
+    # Phone API
+    try:
+        from jarvis.web.phone_router import router as phone_router
+
+        app.include_router(phone_router, prefix="/api/phone")
+    except Exception:
+        pass
+
     # ------------------------------------------------------------------
     # Жизненный цикл: цикл asyncio для Broadcaster'а
     # ------------------------------------------------------------------
