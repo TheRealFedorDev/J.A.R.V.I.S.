@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 import time
@@ -263,13 +264,8 @@ async def entrypoint(ctx: JobContext) -> None:
     def _on_state_changed(event) -> None:
         print(f"[[ORB]]{event.new_state}", flush=True)
 
-    @session.on("user_input_transcribed")
-    async def _on_user_speech(event) -> None:
-        text = (event.transcript or "").strip()
-        if not text:
-            return
-        print(f"[[SAID]]{text}", flush=True)
-        # Команда задач? Ответ готовит основной процесс (там jarvis).
+    async def _handle_task_command(text: str) -> None:
+        """Спросить основной процесс: это команда задач? — и озвучить ответ."""
         try:
             resp = await _get_search_client().post(
                 f"{LOCAL_VOICE_BASE}/voicecmd", json={"text": text}
@@ -280,6 +276,17 @@ async def entrypoint(ctx: JobContext) -> None:
         if data.get("matched"):
             print("[[ORB]]speaking", flush=True)
             await session.say(data.get("answer") or "", add_to_chat_ctx=True)
+
+    # ВАЖНО: EventEmitter.on() принимает ТОЛЬКО синхронный колбэк — иначе
+    # `ValueError: Cannot register an async callback with '.on()'`. Асинхронную
+    # работу выносим в задачу (create_task из синхронного колбэка).
+    @session.on("user_input_transcribed")
+    def _on_user_speech(event) -> None:
+        text = (event.transcript or "").strip()
+        if not text:
+            return
+        print(f"[[SAID]]{text}", flush=True)
+        asyncio.create_task(_handle_task_command(text), name="voice-task-cmd")
 
     await session.start(agent=agent, room=ctx.room)
     await session.generate_reply(instructions="Поздоровайся и спроси, чем помочь.")

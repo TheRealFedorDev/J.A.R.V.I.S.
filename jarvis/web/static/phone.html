@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#04141b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Berta</title>
+<link rel="manifest" href="/m/manifest.webmanifest">
+<style>
+  :root{
+    --bg:#050b12; --card:#0d1a24; --line:#123041; --fg:#d7f4ff;
+    --dim:#6f8ea0; --accent:#00e5ff; --ok:#34d399; --bad:#ff5c7a;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html,body { margin:0; height:100%; }
+  body {
+    background: radial-gradient(120% 80% at 50% 0%, #0b2230 0%, #05070b 70%);
+    color:#dfe9f2; font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  header {
+    display:flex; align-items:center; gap:10px; padding:14px 16px 10px;
+    padding-top: calc(14px + env(safe-area-inset-top));
+    border-bottom:1px solid rgba(0,229,255,.12);
+  }
+  header h1 { font-size:18px; margin:0; letter-spacing:.06em; color:#00e5ff; font-weight:600; }
+  .dot { width:9px; height:9px; border-radius:50%; background:#555; margin-left:auto; }
+  .dot.on { background:#2ee6a8; box-shadow:0 0 8px #2ee6a8; }
+  .dot.off { background:#ff5c7a; }
+  main { flex:1; overflow:hidden; position:relative; }
+  .tab { position:absolute; inset:0; display:none; flex-direction:column; overflow-y:auto; padding:14px 16px; }
+  .tab.active { display:flex; }
+
+  .row { display:flex; gap:8px; }
+  input, button, textarea { font:inherit; color:#e6f4ff; }
+  input[type=text], input[type=password], textarea {
+    flex:1; background:#0c1a24; border:1px solid #1d3547; border-radius:12px;
+    padding:12px 14px; outline:none; width:100%;
+  }
+  input:focus, textarea:focus { border-color:#00e5ff; }
+  button {
+    background:linear-gradient(180deg,#00e5ff,#0091b8); color:#012; border:none;
+    border-radius:12px; padding:12px 16px; font-weight:600; cursor:pointer;
+  }
+  button.ghost { background:#0c1a24; border:1px solid #1d3547; color:#bfe6f5; }
+  button:disabled { opacity:.45; }
+  .mic-btn { width:100%; padding:22px; font-size:17px; margin-top:14px; }
+  .mic-btn.rec { background:linear-gradient(180deg,#ff5c7a,#c02040); color:#fff; }
+
+  ul { list-style:none; padding:0; margin:0; }
+  .task { display:flex; align-items:center; gap:10px; background:#0c1a24;
+    border:1px solid #16293a; border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+  .task .txt { flex:1; cursor:text; word-break:break-word; }
+  .task .del { background:none; border:none; color:#ff5c7a; font-size:20px; padding:4px 6px; }
+  .empty { color:#6d8498; text-align:center; padding:40px 0; }
+
+  .chat { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-bottom:8px; }
+  .msg { max-width:85%; padding:10px 13px; border-radius:14px; font-size:15px; word-break:break-word; }
+  .me { align-self:flex-end; background:#123a4d; }
+  .bot { align-self:flex-start; background:#11202c; border:1px solid #1b3042; }
+  .src { display:block; font-size:11px; opacity:.55; margin-top:4px; }
+  .composer { display:flex; gap:8px; padding-top:12px; border-top:1px solid rgba(0,229,255,.1); }
+
+  .field { margin-bottom:16px; }
+  .label { font-size:13px; color:#7fa6bb; margin-bottom:6px; display:block; }
+  .switch { display:flex; align-items:center; justify-content:space-between;
+    background:#0c1a24; border:1px solid #16293a; border-radius:12px; padding:12px 14px; margin-bottom:8px; }
+  .card { background:#0a1620; border:1px solid #142736; border-radius:14px; padding:14px; margin-bottom:14px; }
+  .hint { color:#7f97a8; font-size:13px; }
+  a { color:#00e5ff; }
+
+  nav { display:flex; border-top:1px solid rgba(0,229,255,.12); background:#070d13;
+        padding-bottom: env(safe-area-inset-bottom); }
+  nav button { flex:1; background:none; border:none; color:#6f8598; padding:12px 4px 14px;
+    font-size:12px; font-weight:600; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  nav button.active { color:#00e5ff; }
+  nav svg { width:22px; height:22px; }
+  .toast { position:fixed; left:50%; bottom:80px; transform:translateX(-50%);
+    background:#0e2634; border:1px solid #1d3547; color:#cfeaf7; padding:10px 16px;
+    border-radius:20px; font-size:14px; opacity:0; transition:opacity .25s; pointer-events:none; z-index:50; }
+  .toast.show { opacity:1; }
+  .pulse { animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity:.4; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>BERTA</h1>
+  <span class="hint" id="who"></span>
+  <span class="dot" id="conn"></span>
+</header>
+
+<main>
+  <section class="tab active" id="tab-tasks">
+    <div class="row" style="margin-bottom:12px">
+      <input type="text" id="new-task" placeholder="Новая задача…" autocomplete="off">
+      <button id="add-task">+</button>
+    </div>
+    <ul id="task-list"></ul>
+    <div class="hint" id="tasks-empty" style="text-align:center;padding:30px 0;display:none">
+      Список пуст. Добавьте первую задачу.
+    </div>
+  </section>
+
+  <section class="tab" id="tab-voice">
+    <div id="chat" class="chat"></div>
+    <button class="mic-btn" id="mic-btn">Нажмите и говорите</button>
+    <div class="row" style="margin-top:14px">
+      <input type="text" id="cmd-text" placeholder="Текстовая команда…" autocomplete="off">
+      <button id="cmd-send">→</button>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-bracelet">
+    <div class="card">
+      <div class="label">Браслет по Bluetooth (BLE)</div>
+      <div class="hint" id="ble-hint"></div>
+      <div class="row" style="margin-top:10px">
+        <button id="ble-connect">Подключить</button>
+        <button class="ghost" id="ble-disconnect" disabled>Отключить</button>
+      </div>
+      <div class="hint" id="ble-status" style="margin-top:8px">не подключён</div>
+    </div>
+
+    <div class="card">
+      <div class="label">Отправить показание на ПК</div>
+      <div class="row">
+        <select id="ble-metric" style="flex:1;background:#0c1a24;border:1px solid #1d3547;border-radius:12px;padding:12px;color:#e6f4ff">
+          <option value="heart_rate">Пульс</option>
+          <option value="battery">Батарея</option>
+          <option value="temperature">Температура</option>
+          <option value="steps">Шаги</option>
+          <option value="raw">Сырые данные</option>
+        </select>
+        <input type="text" id="ble-value" placeholder="значение" style="flex:1">
+        <button id="ble-send">→</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">Лента с браслета</div>
+      <ul id="ble-feed"></ul>
+      <div class="hint" id="ble-empty" style="text-align:center;padding:20px 0">Пока пусто</div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-settings">
+    <div class="card">
+      <div class="label">Ключ доступа (PHONE_API_KEY)</div>
+      <div class="row">
+        <input type="password" id="key-input" placeholder="ключ со стороны ПК">
+        <button class="ghost" id="key-save">OK</button>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        Открывайте страницу как <b>/m?key=ВАШ_КЛЮЧ</b> — он запомнится на телефоне.
+      </div>
+    </div>
+
+    <div class="switch"><span>Озвучивать ответы на телефоне</span>
+      <input type="checkbox" id="sw-speak" style="width:22px;height:22px"></div>
+
+    <div class="switch"><span>Микрофон на ПК</span>
+      <input type="checkbox" id="sw-mic" style="width:22px;height:22px"></div>
+
+    <div class="switch"><span>Озвучка на ПК (TTS)</span>
+      <input type="checkbox" id="sw-tts" style="width:22px;height:22px"></div>
+
+    <div class="card">
+      <div class="label">Подключение</div>
+      <div class="hint" id="srv-info"></div>
+      <button class="ghost" id="btn-check" style="margin-top:10px">Проверить связь</button>
+    </div>
+    <a href="/">Открыть панель на ПК →</a>
+  </section>
+</main>
+
+<nav>
+  <button data-tab="tasks" class="active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+    Задачи</button>
+  <button data-tab="voice">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+    Голос</button>
+  <button data-tab="bracelet">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6.5 6.5l11 11L12 23V1l5.5 5.5-11 11"/></svg>
+    Браслет</button>
+  <button data-tab="settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    Настройки</button>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const API = location.origin + "/api/phone";
+const LS = {
+  key: "berta.phone.key",
+  speak: "berta.phone.speak",
+};
+const state = { key: "", speakOn: false, rec: null, chunks: [], recOn: false };
+
+function $(id) { return document.getElementById(id); }
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2200);
+}
+function setConn(ok) {
+  const d = $("conn");
+  d.className = "dot " + (ok ? "on" : "off");
+}
+
+function loadKey() {
+  const q = new URLSearchParams(location.search).get("key");
+  if (q) { localStorage.setItem(LS.key, q); history.replaceState(null, "", "/m"); }
+  state.key = localStorage.getItem(LS.key) || "";
+  state.speakOn = localStorage.getItem(LS.speak) === "1";
+  $("key-input").value = state.key;
+  $("sw-speak").checked = state.speakOn;
+  $("who").textContent = state.key ? "" : "нет ключа";
+}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({ "X-Phone-Key": state.key }, opts.headers || {});
+  if (opts.json !== undefined) {
+    headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(opts.json);
+  }
+  const r = await fetch(API + path, Object.assign({}, opts, { headers }));
+  if (r.status === 401) { toast("Неверный ключ"); setConn(false); throw new Error("401"); }
+  if (r.status === 503) { toast("Phone API выключен на ПК"); setConn(false); throw new Error("503"); }
+  setConn(true);
+  let data = null;
+  try { data = await r.json(); } catch (e) {}
+  return { ok: r.ok, status: r.status, data };
+}
+
+/* -------- Задачи -------- */
+async function loadTasks() {
+  try {
+    const { data } = await api("/tasks");
+    renderTasks((data && data.tasks) || []);
+  } catch (e) { /* связь уже показана */ }
+}
+function renderTasks(tasks) {
+  const ul = $("task-list"); ul.innerHTML = "";
+  $("tasks-empty").style.display = tasks.length ? "none" : "block";
+  tasks.forEach(t => {
+    const li = document.createElement("li"); li.className = "task";
+    const span = document.createElement("span"); span.className = "txt"; span.textContent = t.text;
+    span.onclick = () => editTask(t);
+    const del = document.createElement("button"); del.className = "del"; del.textContent = "✕";
+    del.onclick = () => delTask(t.id);
+    li.append(span, del); ul.appendChild(li);
+  });
+}
+async function addTask() {
+  const inp = $("new-task"); const text = inp.value.trim();
+  if (!text) return; inp.value = "";
+  try { await api("/tasks", { method: "POST", json: { text } }); loadTasks(); }
+  catch (e) {}
+}
+async function delTask(id) {
+  try { await api("/tasks/" + id, { method: "DELETE" }); loadTasks(); } catch (e) {}
+}
+async function editTask(t) {
+  const text = prompt("Изменить задачу:", t.text);
+  if (text === null) return;
+  try { await api("/tasks/" + t.id, { method: "PATCH", json: { text } }); loadTasks(); }
+  catch (e) {}
+}
+
+/* -------- Команды / чат -------- */
+function bubble(text, who, meta) {
+  const chat = $("chat");
+  const div = document.createElement("div");
+  div.className = "msg " + who;
+  const p = document.createElement("div"); p.textContent = text;
+  div.appendChild(p);
+  if (meta) { const m = document.createElement("div"); m.className = "src"; m.textContent = meta; div.appendChild(m); }
+  chat.appendChild(div); chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+function speak(text) {
+  if (!state.speakOn || !text || !("speechSynthesis" in window)) return;
+  try { const u = new SpeechSynthesisUtterance(text); u.lang = "ru-RU"; speechSynthesis.speak(u); } catch (e) {}
+}
+async function sendCmd() {
+  const inp = $("cmd-text"); const text = inp.value.trim(); if (!text) return;
+  inp.value = ""; bubble(text, "me");
+  try {
+    const { data } = await api("/cmd", { method: "POST", json: { text } });
+    const reply = (data && data.reply) || "(нет ответа)";
+    bubble(reply, "bot", data && data.source);
+    speak(reply);
+  } catch (e) {}
+}
+
+/* -------- Голос (hold to talk) -------- */
+async function startRec() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    state.chunks = [];
+    state.rec = new MediaRecorder(stream);
+    state.rec.ondataavailable = e => { if (e.data.size) state.chunks.push(e.data); };
+    state.rec.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(state.chunks, { type: state.rec.mimeType || "audio/webm" });
+      await sendVoice(blob);
+    };
+    state.rec.start();
+    state.recOn = true; $("mic-btn").classList.add("rec"); $("mic-btn").textContent = "Отпустите — отправить";
+  } catch (e) { toast("Нет доступа к микрофону"); }
+}
+function stopRec() {
+  if (state.rec && state.recOn) { state.rec.stop(); }
+  state.recOn = false; $("mic-btn").classList.remove("rec"); $("mic-btn").textContent = "Нажмите и говорите";
+}
+async function sendVoice(blob) {
+  const loading = bubble("…", "bot", "распознаю"); loading.classList.add("pulse");
+  const fd = new FormData(); fd.append("file", blob, "voice.webm");
+  try {
+    const r = await fetch(API + "/voice", { method: "POST", headers: { "X-Phone-Key": state.key }, body: fd });
+    setConn(r.ok);
+    const data = await r.json();
+    loading.remove();
+    if (data.transcript) bubble(data.transcript, "me");
+    const reply = data.reply || (data.transcript ? "(нет ответа)" : "Не расслышала");
+    bubble(reply, "bot", data.source);
+    speak(reply);
+  } catch (e) { loading.remove(); bubble("Ошибка распознавания", "bot"); }
+}
+
+/* -------- Браслет (Web Bluetooth) -------- */
+const BLE = {
+  device: null,
+  server: null,
+  services: [
+    "00001800-0000-1000-8000-00805f9b34fb",
+    "00001801-0000-1000-8000-00805f9b34fb",
+    "0000180a-0000-1000-8000-00805f9b34fb",
+    "00001809-0000-1000-8000-00805f9b34fb",
+    "0000180d-0000-1000-8000-00805f9b34fb",
+    "0000180f-0000-1000-8000-00805f9b34fb",
+    "00001810-0000-1000-8000-00805f9b34fb",
+    "00001814-0000-1000-8000-00805f9b34fb",
+    "00001816-0000-1000-8000-00805f9b34fb",
+    "0000181a-0000-1000-8000-00805f9b34fb",
+    "0000181b-0000-1000-8000-00805f9b34fb",
+    "0000181c-0000-1000-8000-00805f9b34fb",
+    "0000181d-0000-1000-8000-00805f9b34fb",
+    "00001822-0000-1000-8000-00805f9b34fb",
+  ],
+};
+function bleHex(dv) {
+  let s = "";
+  for (let i = 0; i < dv.byteLength; i++) s += dv.getUint8(i).toString(16).padStart(2, "0");
+  return s;
+}
+function bleParse(uuid, dv) {
+  const u = (uuid || "").toLowerCase();
+  try {
+    if (u.startsWith("00002a37")) {           // Heart Rate Measurement
+      const flags = dv.getUint8(0);
+      const v = (flags & 0x1) ? dv.getUint16(1, true) : dv.getUint8(1);
+      return { kind: "heart_rate", value: v };
+    }
+    if (u.startsWith("00002a19")) {           // Battery Level
+      return { kind: "battery", value: dv.getUint8(0) };
+    }
+  } catch (e) {}
+  return { kind: "raw", value: bleHex(dv), extra: { uuid } };
+}
+function bleFeed(kind, value) {
+  const ul = $("ble-feed");
+  $("ble-empty").style.display = "none";
+  const li = document.createElement("li"); li.className = "task";
+  const span = document.createElement("span"); span.className = "txt";
+  const shown = (value === undefined || value === null || value === "") ? "—" : value;
+  span.textContent = new Date().toLocaleTimeString("ru-RU") + "  " + kind + ": " + shown;
+  li.appendChild(span); ul.prepend(li);
+  while (ul.children.length > 30) ul.removeChild(ul.lastChild);
+}
+async function blePush(kind, value, extra) {
+  bleFeed(kind, value);
+  $("ble-value").value = (value === undefined || value === null) ? "" : String(value);
+  try {
+    await api("/bracelet", { method: "POST", json: {
+      device: (BLE.device && BLE.device.name) || "", kind, value, extra: extra || {},
+    }});
+  } catch (e) {}
+}
+async function bleScan() {
+  let count = 0, services = [];
+  try { services = await BLE.server.getPrimaryServices(); } catch (e) { return 0; }
+  for (const svc of services) {
+    let chars = [];
+    try { chars = await svc.getCharacteristics(); } catch (e) { continue; }
+    for (const ch of chars) {
+      const p = ch.properties;
+      if (p.notify || p.indicate) {
+        const uuid = ch.uuid;
+        try {
+          await ch.startNotifications();
+          ch.addEventListener("characteristicvaluechanged", ev => {
+            const parsed = bleParse(uuid, ev.target.value);
+            blePush(parsed.kind, parsed.value, parsed.extra);
+          });
+          count++;
+        } catch (e) {}
+      }
+    }
+  }
+  return count;
+}
+async function bleConnect() {
+  if (!navigator.bluetooth) { toast("Нужен Chrome + HTTPS"); return; }
+  try {
+    $("ble-status").textContent = "поиск…";
+    const device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true, optionalServices: BLE.services,
+    });
+    BLE.device = device;
+    device.addEventListener("gattserverdisconnected", bleDisconnected);
+    BLE.server = await device.gatt.connect();
+    let name = device.name || "BLE-устройство";
+    try {
+      const ga = await BLE.server.getPrimaryService("generic_access");
+      const nm = await ga.getCharacteristic("gap.device_name").readValue();
+      name = new TextDecoder().decode(nm).replace(/\0/g, "").trim() || name;
+    } catch (e) {}
+    $("ble-status").textContent = "подключён: " + name;
+    $("ble-connect").disabled = true;
+    $("ble-disconnect").disabled = false;
+    const n = await bleScan();
+    if (n) $("ble-status").textContent += " · подписок: " + n;
+    blePush("connect", name, {});
+    toast("Браслет подключён");
+  } catch (e) {
+    $("ble-status").textContent = (e && e.name === "NotFoundError") ? "отменено" : ("ошибка: " + (e && (e.message || e)));
+    $("ble-connect").disabled = false;
+  }
+}
+function bleDisconnected() {
+  $("ble-status").textContent = "отключён";
+  $("ble-connect").disabled = false;
+  $("ble-disconnect").disabled = true;
+  BLE.device = null; BLE.server = null;
+}
+function bleDisconnect() {
+  try { if (BLE.device && BLE.device.gatt.connected) BLE.device.gatt.disconnect(); } catch (e) {}
+  bleDisconnected();
+}
+function bleSendManual() {
+  const kind = $("ble-metric").value;
+  const raw = $("ble-value").value.trim();
+  let value = raw;
+  if (kind !== "raw" && raw !== "" && !isNaN(Number(raw))) value = Number(raw);
+  blePush(kind, value, { manual: true });
+}
+function bleInit() {
+  if (!navigator.bluetooth) {
+    $("ble-hint").textContent = "Web Bluetooth недоступен. Нужен Chrome на Android и HTTPS (Tailscale). По http:// он выключен.";
+    $("ble-connect").disabled = true;
+    return;
+  }
+  $("ble-hint").textContent = "Подключите браслет — показания автоматически уедут на ПК.";
+}
+
+/* -------- Настройки / связь -------- */
+async function refreshState() {
+  try {
+    const { data } = await api("/state");
+    if (data) { $("sw-mic").checked = !data.mic_muted; $("sw-tts").checked = !!data.tts_enabled; }
+  } catch (e) {}
+}
+async function checkLink() {
+  try {
+    const { data } = await api("/health");
+    toast(data && data.ok ? "Связь есть ✓" : "Нет ответа");
+  } catch (e) {}
+}
+async function toggleHost(path, enabled) {
+  try { await api(path, { method: "POST", json: { enabled } }); } catch (e) {}
+}
+
+/* -------- Инициализация -------- */
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach(s => s.classList.toggle("active", s.id === "tab-" + name));
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+}
+
+function init() {
+  loadKey();
+  $("srv-info").textContent = API;
+
+  document.querySelectorAll("nav button").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+
+  $("add-task").onclick = addTask;
+  $("new-task").addEventListener("keydown", e => { if (e.key === "Enter") addTask(); });
+  $("cmd-send").onclick = sendCmd;
+  $("cmd-text").addEventListener("keydown", e => { if (e.key === "Enter") sendCmd(); });
+
+  const mic = $("mic-btn");
+  mic.addEventListener("pointerdown", e => { e.preventDefault(); startRec(); });
+  mic.addEventListener("pointerup", e => { e.preventDefault(); stopRec(); });
+  mic.addEventListener("pointerleave", () => { if (state.recOn) stopRec(); });
+
+  $("key-save").onclick = () => {
+    state.key = $("key-input").value.trim();
+    localStorage.setItem(LS.key, state.key);
+    $("who").textContent = state.key ? "" : "нет ключа";
+    toast("Ключ сохранён"); loadTasks(); refreshState();
+  };
+  $("sw-speak").onchange = e => { state.speakOn = e.target.checked; localStorage.setItem(LS.speak, state.speakOn ? "1" : "0"); };
+  $("sw-mic").onchange = e => toggleHost("/mic", e.target.checked);
+  $("sw-tts").onchange = e => toggleHost("/tts", e.target.checked);
+  $("btn-check").onclick = checkLink;
+
+  bleInit();
+  $("ble-connect").onclick = bleConnect;
+  $("ble-disconnect").onclick = bleDisconnect;
+  $("ble-send").onclick = bleSendManual;
+
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || ["localhost", "127.0.0.1"].includes(location.hostname))) {
+    navigator.serviceWorker.register("/m/sw.js").catch(() => {});
+  }
+
+  if (state.key) { loadTasks(); refreshState(); } else { toast("Введите ключ в «Настройках»"); }
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>

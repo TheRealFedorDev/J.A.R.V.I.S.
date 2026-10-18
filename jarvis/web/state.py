@@ -31,7 +31,7 @@ from jarvis.voice.tasks_rule import parse_task_command
 
 log = logging.getLogger("jarvis.web")
 
-_THROTTLE = {"gaze": 0.08, "hand": 0.10}   # мин. интервал пересылки, с
+_THROTTLE = {"gaze": 0.08, "hand": 0.10, "bracelet": 0.5}  # мин. интервал, с
 _AUDIT_MAX = 300
 _PENDING_TTL = 120.0                        # жизнь confirm-запроса, с
 
@@ -365,6 +365,11 @@ class AppState:
         # после bcast: колбэк задач шлёт рассылку по WS
         self.tasks = TaskManager(data_dir / "tasks.json", self._on_tasks_change)
 
+        # показания BLE-браслета с телефона (телефон → /api/phone/bracelet)
+        self._bracelet: deque[dict] = deque(maxlen=200)
+        self.bracelet_last: dict | None = None
+        self._bracelet_lock = threading.Lock()
+
         # флаги P0
         self.emergency = False
         self.mic_muted = False
@@ -597,6 +602,25 @@ class AppState:
         self.bcast.push("tasks", {"tasks": tasks})
 
     # ------------------------------------------------------------------
+    # Браслет (BLE → телефон → сюда)
+    # ------------------------------------------------------------------
+    def add_bracelet(self, entry: dict) -> dict:
+        """Сохранить показание браслета и разослать его открытым клиентам.
+
+        В аудит не пишем: пульс/шаги приходят часто и засорили бы журнал.
+        Рассылку троттлим — панели на ПК достаточно ~2 кадров в секунду.
+        """
+        with self._bracelet_lock:
+            self._bracelet.append(entry)
+            self.bracelet_last = entry
+        self.bcast.push("bracelet", entry, throttle_key="bracelet")
+        return entry
+
+    def bracelet_recent(self, n: int = 50) -> list[dict]:
+        with self._bracelet_lock:
+            return list(self._bracelet)[-n:]
+
+    # ------------------------------------------------------------------
     # Снимок состояния (GET /api/status + WS snapshot)
     # ------------------------------------------------------------------
     def snapshot(self) -> dict:
@@ -623,5 +647,6 @@ class AppState:
             "tts_enabled": self.tts_enabled,
             "voice_model_ok": self.voice_model_ok,
             "tasks": self.tasks.list(),
+            "bracelet": self.bracelet_last,
             "audit": self.audit.tail(30),
         }

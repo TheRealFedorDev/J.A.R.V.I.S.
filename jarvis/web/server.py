@@ -97,6 +97,30 @@ def create_app(state) -> FastAPI:
         index_path = _STATIC / "index.html"
         return HTMLResponse(index_path.read_text(encoding="utf-8"))
 
+    # ------------------------------------------------------------------
+    # Мобильная веб-панель (/m): PWA для телефона, говорит с Phone API
+    # ------------------------------------------------------------------
+    @app.get("/m", response_class=HTMLResponse)
+    async def phone_index() -> Response:
+        return HTMLResponse((_STATIC / "phone.html").read_text(encoding="utf-8"))
+
+    @app.get("/m/manifest.webmanifest")
+    async def phone_manifest() -> Response:
+        path = _STATIC / "phone-manifest.webmanifest"
+        return Response(path.read_text(encoding="utf-8"),
+                        media_type="application/manifest+json")
+
+    @app.get("/m/sw.js")
+    async def phone_sw() -> Response:
+        path = _STATIC / "phone-sw.js"
+        return Response(path.read_text(encoding="utf-8"),
+                        media_type="application/javascript")
+
+    @app.get("/m/icon.svg")
+    async def phone_icon() -> Response:
+        path = _STATIC / "phone-icon.svg"
+        return Response(path.read_text(encoding="utf-8"), media_type="image/svg+xml")
+
     app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
     # ------------------------------------------------------------------

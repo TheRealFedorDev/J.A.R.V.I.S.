@@ -6,8 +6,12 @@
 компонентами проекта, чтобы голосовой контур LiveKit работал офлайн:
 
     POST /v1/audio/transcriptions  ->  faster-whisper   (STT)
-    POST /v1/audio/speech         ->  edge-tts         (TTS)
+    POST /v1/audio/speech         ->  edge-tts / SAPI  (TTS)
     GET  /v1/models               ->  список моделей
+
+edge-tts в некоторых сетях закрыт (403 от speech.platform.bing.com),
+поэтому синтез деградирует до офлайнового System.Speech (SAPI): голосовой
+контур продолжает работать без интернета.
 
 Логика разговора, VAD, прерывания и стриминг берёт на себя LiveKit.
 """
@@ -49,6 +53,12 @@ PORT = int(os.environ.get("LOCAL_VOICE_PORT", "8077"))
 TTS_VOICE = os.environ.get("TTS_VOICE_RU") or DEFAULT_RU_VOICE
 TTS_EN_VOICE = os.environ.get("TTS_VOICE") or DEFAULT_EN_VOICE
 TTS_RATE = os.environ.get("TTS_RATE", "+0%")
+# auto — попробовать edge-tts, при недоступности уйти в SAPI; edge — только
+# edge; sapi — всегда офлайн; none — выключить синтез.
+TTS_ENGINE = os.environ.get("LOCAL_VOICE_TTS", "auto").strip().lower() or "auto"
+# Сколько ждать первый аудио-чанк edge-tts, прежде чем считать его мёртвым
+# (403 в закрытых сетях приходит мгновенно, но таймаут страхует от зависаний).
+TTS_EDGE_TIMEOUT = float(os.environ.get("TTS_EDGE_TIMEOUT", "10"))
 
 TARGET_RATE = 16000
 
@@ -276,40 +286,138 @@ async def voicecmd(payload: dict[str, Any]) -> JSONResponse:
     return JSONResponse({"matched": True, "answer": answer})
 
 
+_SAPI_RU = "Irina|Eva|Katyusha|Daria|Svetlana|Milena|Alyona"
+_SAPI_EN = "Zira|Eva|Hazel|Susan|Sonia|Aria|Jenny"
+# Любой женский голос — последний шанс, если нужной локали нет.
+_SAPI_ANY_FEMALE = (
+    "Irina|Eva|Zira|Hazel|Katyusha|Daria|Svetlana|Milena|Alyona|"
+    "Helena|Hortense|Elsa|Paulina|Hedda|Susan|Sonia|Aria|Jenny"
+)
+
+
+def _synth_wav_local(text: str, *, russian: bool) -> bytes:
+    """Офлайн-синтез через System.Speech (SAPI) в WAV-байты.
+
+    Живёт в отдельном потоке: PowerShell стартует COM-движок синтеза.
+    Текст попадает в одинарные кавычки PowerShell, поэтому экранируем
+    только апостроф (удвоение) — остальные символы в '' литеральны.
+    """
+    import subprocess
+    import tempfile
+
+    match = _SAPI_RU if russian else _SAPI_EN
+    fd, path = tempfile.mkstemp(suffix=".wav", prefix="berta_tts_")
+    os.close(fd)
+    safe = text.replace("'", "''")
+    script = (
+        "Add-Type -AssemblyName System.Speech; "
+        "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        f"$v = @($s.GetInstalledVoices() | Where-Object {{ $_.VoiceInfo.Name -match '{match}' }})[0]; "
+        f"if (-not $v) {{ $v = @($s.GetInstalledVoices() | Where-Object {{ $_.VoiceInfo.Name -match '{_SAPI_ANY_FEMALE}' }})[0] }}; "
+        "if ($v) { $s.SelectVoice($v.VoiceInfo.Name) }; "
+        "$s.Rate = 0; "
+        f"$s.SetOutputToWaveFile('{path}'); "
+        f"$s.Speak('{safe}'); "
+        "$s.Dispose()"
+    )
+    try:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            check=True,
+            timeout=60,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        data = Path(path).read_bytes()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    if not data:
+        raise RuntimeError("SAPI вернул пустой WAV")
+    return data
+
+
+async def _open_edge_stream(text: str, voice: str) -> tuple[AsyncIterator[dict], bytes] | None:
+    """Открыть поток edge-tts и достать первый аудио-чанк.
+
+    Возвращаем (генератор, первый чанк) либо None, если edge недоступен
+    (403/таймаут/пустой поток) — тогда вызывающий уходит в SAPI-фоллбэк.
+    """
+    agen = edge_tts.Communicate(text, voice, rate=TTS_RATE).stream()
+    try:
+        async with asyncio.timeout(TTS_EDGE_TIMEOUT):
+            async for chunk in agen:
+                if chunk["type"] == "audio" and chunk["data"]:
+                    return agen, chunk["data"]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("TTS: edge-tts недоступен (%s: %s)", type(exc).__name__, exc)
+    else:
+        log.warning("TTS: edge-tts не вернул аудио")
+    try:
+        await agen.aclose()
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+async def _relay_edge(agen: AsyncIterator[dict], first: bytes) -> AsyncIterator[bytes]:
+    try:
+        yield first
+        async for chunk in agen:
+            if chunk["type"] == "audio" and chunk["data"]:
+                yield chunk["data"]
+    finally:
+        try:
+            await agen.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 @app.post("/v1/audio/speech")
 async def speech(payload: dict[str, Any]) -> Response:
     text = (payload.get("input") or "").strip()
     if not text:
         return Response(content=b"", media_type="audio/mpeg")
 
-    default_voice = TTS_VOICE if is_russian(text) else TTS_EN_VOICE
+    russian = is_russian(text)
+    default_voice = TTS_VOICE if russian else TTS_EN_VOICE
     voice = payload.get("voice") or default_voice
     # LiveKit шлёт имена вида "alloy"/"alloy-voice": это не edge-голоса
     if not voice.endswith("Neural"):
         voice = default_voice
 
-    async def iter_mp3() -> AsyncIterator[bytes]:
-        """Отдаём mp3 кусками по мере синтеза, а не целиком.
+    if TTS_ENGINE in ("auto", "edge"):
+        edge = await _open_edge_stream(text, voice)
+        if edge is not None:
+            agen, first = edge
+            log.info("TTS (edge, %s): %s", voice, text[:80])
+            # Побайтовый стриминг сдвигает начало озвучки к середине синтеза,
+            # а не к концу. Content-Type audio/mpeg — по нему плагин openai
+            # выбирает ветку stream.iter_bytes() (SSE-ветку не включаем).
+            return StreamingResponse(
+                _relay_edge(agen, first),
+                media_type="audio/mpeg",
+                headers={"Cache-Control": "no-store"},
+            )
+        if TTS_ENGINE == "edge":
+            log.warning("TTS: edge выключен, локальный движок отключён (LOCAL_VOICE_TTS=edge)")
+            return Response(content=b"", media_type="audio/wav", status_code=502)
 
-        Раньше весь ответ копился в bytearray и уезжал одним куском:edge-tts
-        к моменту отправки уже успевал отдать всё, и LiveKit начинал plays
-        только после конца предложения. LiveKit 1.8 сам режет поток LLM на
-        предложения и шлёт их в TTS по одному, поэтому побайтовый стриминг
-        здесь сдвигает начало озвучки к середине синтеза, а не к его концу.
-        Content-Type остаётся audio/mpeg - плагин openai по нему выбирает
-        ветку stream.iter_bytes() (SSE-ветку не включаем).
-        """
-        communicate = edge_tts.Communicate(text, voice, rate=TTS_RATE)
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio" and chunk["data"]:
-                yield chunk["data"]
+    if TTS_ENGINE in ("auto", "sapi"):
+        try:
+            wav = await asyncio.to_thread(_synth_wav_local, text, russian=russian)
+            log.info("TTS (SAPI, офлайн): %s", text[:80])
+            return Response(
+                content=wav,
+                media_type="audio/wav",
+                headers={"Cache-Control": "no-store"},
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("TTS: локальный синтез не удался")
 
-    log.info("TTS (%s, поток): %s", voice, text[:80])
-    return StreamingResponse(
-        iter_mp3(),
-        media_type="audio/mpeg",
-        headers={"Cache-Control": "no-store"},
-    )
+    return Response(content=b"", media_type="audio/wav", status_code=503)
 
 
 def main() -> None:

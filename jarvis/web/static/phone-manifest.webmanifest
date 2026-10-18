@@ -1,0 +1,19 @@
+{
+  "name": "Berta Phone",
+  "short_name": "Berta",
+  "description": "Управление J.A.R.V.I.S. с телефона",
+  "start_url": "/m",
+  "scope": "/m",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#05070b",
+  "theme_color": "#00e5ff",
+  "icons": [
+    {
+      "src": "/m/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
