@@ -1,0 +1,56 @@
+name: Build Berta Phone APK
+
+# Сборка Android-приложения (фоновый мост) без локального Android SDK.
+# Запускается вручную (Actions -> Run workflow) или на push в mobile/berta_phone.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "mobile/berta_phone/**"
+      - ".github/workflows/build-berta-phone.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform (keeps our lib/ and pubspec)
+        working-directory: mobile/berta_phone
+        run: |
+          cp pubspec.yaml /tmp/pubspec.yaml
+          mv lib /tmp/lib_src
+          flutter create --platforms=android --project-name berta_phone --org dev.berta .
+          rm -rf lib
+          mv /tmp/lib_src lib
+          cp /tmp/pubspec.yaml pubspec.yaml
+
+      - name: Patch Android (permissions, service, icon, minSdk)
+        working-directory: mobile/berta_phone
+        run: python3 tool/patch_android.py
+
+      - name: Get packages
+        working-directory: mobile/berta_phone
+        run: flutter pub get
+
+      - name: Build debug APK
+        working-directory: mobile/berta_phone
+        run: flutter build apk --debug --no-tree-shake-icons
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: berta-phone-debug-apk
+          path: mobile/berta_phone/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error

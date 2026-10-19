@@ -1,11 +1,28 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'screens/home.dart';
-import 'screens/tasks.dart';
-import 'screens/settings.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-void main() {
+import 'screens/home.dart';
+import 'screens/settings.dart';
+import 'screens/tasks.dart';
+import 'services/background_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Уведомление foreground-сервиса на Android 13+ требует разрешения.
+  if (Platform.isAndroid) {
+    try {
+      await Permission.notification.request();
+    } catch (_) {}
+  }
+
+  // Мост телефон <-> ПК стартует сразу и живёт в фоне.
+  await BertaBridge.init();
+
   runApp(const ProviderScope(child: BertaApp()));
 }
 
