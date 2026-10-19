@@ -31,7 +31,8 @@ SERVICE_DECL = (
     '        <service\n'
     '            android:name="id.flutter.flutter_background_service.BackgroundService"\n'
     '            android:foregroundServiceType="dataSync"\n'
-    '            android:exported="false" />\n'
+    '            android:exported="false"\n'
+    '            tools:replace="android:exported" />\n'
 )
 
 ICON = """<?xml version="1.0" encoding="utf-8"?>
@@ -49,6 +50,9 @@ ICON = """<?xml version="1.0" encoding="utf-8"?>
 
 def patch_manifest() -> None:
     txt = MANIFEST.read_text(encoding="utf-8")
+
+    if "xmlns:tools" not in txt:
+        txt = txt.replace("<manifest", '<manifest xmlns:tools="http://schemas.android.com/tools"', 1)
 
     missing = [p for p in PERMISSIONS if f'android:name="{p}"' not in txt]
     if missing:
