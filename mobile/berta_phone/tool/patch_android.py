@@ -3,8 +3,11 @@
 Вызывается в CI после `flutter create --platforms=android`. Добавляет:
   * разрешения (INTERNET, FOREGROUND_SERVICE_DATA_SYNC, POST_NOTIFICATIONS, ...);
   * объявление сервиса flutter_background_service с foregroundServiceType;
-  * иконку уведомления ic_bg_service_small;
   * minSdk 23 (нужен плагинам record/permission_handler).
+
+Иконку уведомления НЕ создаём: плагин flutter_background_service уже поставляет
+корректные PNG (ic_bg_service_small) в drawable-*dpi. Своя векторная иконка
+перекрывала их и приводила к CannotPostForegroundServiceNotificationException.
 """
 
 from __future__ import annotations
@@ -34,19 +37,6 @@ SERVICE_DECL = (
     '            android:exported="false"\n'
     '            tools:replace="android:exported" />\n'
 )
-
-ICON = """<?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M12,1l5,5 -3.5,3.5L17,13l-5,5 -5,-5 3.5,-3.5L7,6z" />
-</vector>
-"""
-
 
 def patch_manifest() -> None:
     txt = MANIFEST.read_text(encoding="utf-8")
@@ -79,20 +69,12 @@ def patch_min_sdk() -> None:
         print(f"[patch] minSdk set in {name}")
 
 
-def write_icon() -> None:
-    res = ANDROID / "app" / "src" / "main" / "res" / "drawable"
-    res.mkdir(parents=True, exist_ok=True)
-    (res / "ic_bg_service_small.xml").write_text(ICON, encoding="utf-8")
-    print("[patch] notification icon written")
-
-
 def main() -> int:
     if not MANIFEST.exists():
         print(f"manifest not found: {MANIFEST}", file=sys.stderr)
         return 1
     patch_manifest()
     patch_min_sdk()
-    write_icon()
     return 0
 
 

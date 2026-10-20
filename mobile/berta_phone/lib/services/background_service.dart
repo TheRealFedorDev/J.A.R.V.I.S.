@@ -8,8 +8,9 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../utils/config.dart';
 
-/// Канал уведомления foreground-сервиса.
-const kChannelId = 'berta_bridge';
+/// Канал уведомления создаёт сам плагин (FOREGROUND_DEFAULT).
+/// Свой channelId передавать нельзя: плагин создаёт канал только когда id == null,
+/// иначе startForeground падает с "invalid channel" и Android убивает приложение.
 const kNotifId = 878;
 
 /// Мост телефон <-> ПК, живущий в фоне.
@@ -24,7 +25,7 @@ class BertaBridge {
         onStart: onStart,
         autoStart: true,
         isForegroundMode: true,
-        notificationChannelId: kChannelId,
+        autoStartOnBoot: false,
         initialNotificationTitle: 'Berta',
         initialNotificationContent: 'Подключаюсь…',
         foregroundServiceNotificationId: kNotifId,
