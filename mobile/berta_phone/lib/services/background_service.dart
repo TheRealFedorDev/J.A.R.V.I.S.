@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../utils/config.dart';
@@ -100,6 +99,19 @@ Future<void> _handle(ServiceInstance service, dynamic data) async {
 
   if (type == 'llm_chunk' && d is Map) {
     service.invoke('llm_chunk', {'chunk': (d['chunk'] ?? '').toString()});
+    return;
+  }
+
+  // прогресс («Думаю…», «Ищу в интернете…») — в UI и в уведомление,
+  // чтобы было видно, что запрос не потерялся
+  if (type == 'status' && d is Map) {
+    final text = (d['text'] ?? '').toString();
+    if (text.isEmpty) return;
+    service.invoke('status', {
+      'text': text,
+      'kind': (d['kind'] ?? '').toString(),
+    });
+    _notify(service, text);
     return;
   }
 

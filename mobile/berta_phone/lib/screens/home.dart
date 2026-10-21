@@ -23,6 +23,7 @@ class _HomeState extends State<HomeScreen> {
   String reply = '';
   String source = '';
   String heard = '';
+  String status = '';
   bool rec = false;
   String? recPath;
   bool serviceOn = false;
@@ -30,6 +31,7 @@ class _HomeState extends State<HomeScreen> {
 
   StreamSubscription<Map<String, dynamic>?>? _subReply;
   StreamSubscription<Map<String, dynamic>?>? _subChunk;
+  StreamSubscription<Map<String, dynamic>?>? _subStatus;
 
   @override
   void initState() {
@@ -41,6 +43,7 @@ class _HomeState extends State<HomeScreen> {
   void dispose() {
     _subReply?.cancel();
     _subChunk?.cancel();
+    _subStatus?.cancel();
     _cmdCtrl.dispose();
     super.dispose();
   }
@@ -55,6 +58,7 @@ class _HomeState extends State<HomeScreen> {
       setState(() {
         reply = (e['reply'] ?? '').toString();
         source = (e['source'] ?? '').toString();
+        status = '';
         online = true;
       });
     });
@@ -62,6 +66,11 @@ class _HomeState extends State<HomeScreen> {
       final c = (e?['chunk'] ?? '').toString();
       if (c.isEmpty) return;
       setState(() => reply = reply + c);
+    });
+    _subStatus = svc.on('status').listen((e) {
+      final t = (e?['text'] ?? '').toString();
+      if (t.isEmpty) return;
+      setState(() => status = t);
     });
 
     if (mounted) {
@@ -89,10 +98,24 @@ class _HomeState extends State<HomeScreen> {
     final text = _cmdCtrl.text.trim();
     if (text.isEmpty) return;
     _cmdCtrl.clear();
-    setState(() => heard = text);
+    setState(() {
+      heard = text;
+      status = 'Думаю…';
+    });
     try {
-      await api.cmd(text);
-    } catch (_) {}
+      final res = await api.cmd(text);
+      if (!mounted) return;
+      final a = (res['reply'] ?? '').toString();
+      setState(() {
+        status = '';
+        if (a.isNotEmpty) {
+          reply = a;
+          source = (res['source'] ?? '').toString();
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => status = '');
+    }
   }
 
   Future<void> _pttStart() async {
@@ -103,11 +126,15 @@ class _HomeState extends State<HomeScreen> {
   Future<void> _pttStop() async {
     final path = recPath;
     if (path == null) return;
+    setState(() {
+      rec = false;
+      status = 'Распознаю…';
+    });
     final res = await voice.stopAndSend(path);
     recPath = null;
     if (mounted) {
       setState(() {
-        rec = false;
+        status = '';
         if (res != null) {
           final t = (res['transcript'] ?? '').toString();
           final a = (res['reply'] ?? '').toString();
@@ -146,6 +173,23 @@ class _HomeState extends State<HomeScreen> {
             const Divider(),
             const Text('Последний ответ', style: TextStyle(color: Colors.white70, fontSize: 12)),
             const SizedBox(height: 8),
+            if (status.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 14, height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(status,
+                          style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                    ),
+                  ],
+                ),
+              ),
             Expanded(
               child: Container(
                 width: double.infinity,

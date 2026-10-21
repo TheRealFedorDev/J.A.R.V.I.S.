@@ -99,12 +99,16 @@ def _route_text(st, text: str) -> dict[str, Any]:
         return {"ok": False, "reply": "", "source": "rules",
                 "needs_confirm": False, "confirm_id": None}
 
+    st.bcast.push("status", {"text": "Думаю…", "kind": "thinking"})
+    log.info("phone: cmd «%s»", text[:160])
     result = st.router.handle(text, source="phone")
     reply = result.reply
     if result.stream and result.source == "llm":
         # на телефоне стриминг не нужен — забираем готовый текст
         reply = st.router.stream_llm(text, "phone", lambda _chunk: None)
 
+    log.info("phone: reply (%s/%s) %s", result.source, result.action,
+             (reply or "")[:160])
     st.bcast.push("router", {
         "text": text, "reply": reply, "source": result.source,
         "needs_confirm": result.needs_confirm, "confirm_id": result.confirm_id,

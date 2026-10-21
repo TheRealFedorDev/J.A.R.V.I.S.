@@ -292,12 +292,14 @@ function speak(text) {
 async function sendCmd() {
   const inp = $("cmd-text"); const text = inp.value.trim(); if (!text) return;
   inp.value = ""; bubble(text, "me");
+  const loading = bubble("Думаю…", "bot", "запрос"); loading.classList.add("pulse");
   try {
     const { data } = await api("/cmd", { method: "POST", json: { text } });
+    loading.remove();
     const reply = (data && data.reply) || "(нет ответа)";
     bubble(reply, "bot", data && data.source);
     speak(reply);
-  } catch (e) {}
+  } catch (e) { loading.remove(); }
 }
 
 /* -------- Голос (hold to talk) -------- */

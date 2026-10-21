@@ -105,3 +105,58 @@ def test_maybe_web_search_empty():
     import asyncio
 
     assert asyncio.run(maybe_web_search("")) == ""
+
+
+# ---------------------------------------------------------------------------
+# Геокодинг и погода: косвенные падежи, met.no
+# ---------------------------------------------------------------------------
+def test_geocode_retries_inflected_forms(monkeypatch):
+    """«Долгопрудном» точно не находится — пробуем основу слова."""
+    import asyncio
+    from urllib.parse import quote
+
+    from jarvis.voice import web_search
+
+    calls: list[str] = []
+
+    async def fake_get_json(url, timeout, *, headers=None):
+        calls.append(url)
+        if quote("Долгопрудн") in url:
+            return {"results": [{
+                "latitude": 55.9496, "longitude": 37.5018,
+                "name": "Долгопрудный",
+            }]}
+        return {"generationtime_ms": 0.1}
+
+    monkeypatch.setattr(web_search, "_get_json", fake_get_json)
+    got = asyncio.run(web_search._geocode("Долгопрудном", 2.0))
+    assert got == (55.9496, 37.5018, "Долгопрудный")
+    # основа ищется первой — точная косвенная форма не нужна
+    from urllib.parse import unquote_plus
+
+    assert len(calls) == 1
+    assert "Долгопрудн" in unquote_plus(calls[0])
+
+
+def test_metno_parses_compact(monkeypatch):
+    import asyncio
+
+    from jarvis.voice import web_search
+
+    async def fake_get_json(url, timeout, *, headers=None):
+        return {"properties": {"timeseries": [{
+            "data": {
+                "instant": {"details": {
+                    "air_temperature": 4.4, "wind_speed": 2.4,
+                }},
+                "next_1_hours": {"summary": {"symbol_code": "clearsky_day"}},
+            },
+        }]}}
+
+    monkeypatch.setattr(web_search, "_get_json", fake_get_json)
+    hit = asyncio.run(
+        web_search._search_metno(55.9, 37.5, "Долгопрудный", 1.0)
+    )
+    assert hit is not None and hit.source == "weather"
+    assert "Долгопрудный" in hit.text
+    assert "ясно" in hit.text and "4°C" in hit.text

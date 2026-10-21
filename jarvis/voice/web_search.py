@@ -22,8 +22,11 @@ from urllib.parse import quote
 
 log = logging.getLogger("jarvis.voice.web_search")
 
-# общий бюджет сети на все источники (сек) — гонка, возврат по первому hit
-DEFAULT_TIMEOUT = float(os.environ.get("WEB_SEARCH_TIMEOUT", "1.8"))
+# общий бюджет сети на все источники (сек) — гонка, возврат по первому hit.
+# Двух последовательных запросов (геокодинг + прогноз) 1.8 с не хватало:
+# на первом (холодном) соединении геокодинг съедал весь бюджет, и погода
+# возвращала пустоту — ответа не было вовсе.
+DEFAULT_TIMEOUT = float(os.environ.get("WEB_SEARCH_TIMEOUT", "6.0"))
 
 _WEATHER_RE = re.compile(
     r"погод|температур|градус|дожд|снегопад|снеж|ветер|шторм|гроз",
@@ -280,34 +283,137 @@ async def _get_text(url: str, timeout: float) -> str:
         return ""
 
 
+async def _geocode(place: str, timeout: float) -> tuple[float, float, str] | None:
+    """Координаты города по названию.
+
+    Геокодер open-meteo не понимает косвенные падежи («Долгопрудном»,
+    «Королёве» — пустой ответ), поэтому после точной формы пробуем основы
+    слова: «Долгопрудн» → «Долгопрудный».
+    """
+    candidates: list[str] = []
+    # сначала основа (обрезаем 1–2 буквы): «Долгопрудном» → «Долгопрудн»,
+    # «Королёве» → «Королёв»; затем точная форма
+    if len(place) > 5:
+        candidates.append(place[:-1])
+        if len(place) > 7:
+            candidates.append(place[:-2])
+    candidates.append(place)
+    candidates = list(dict.fromkeys(candidates))
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    for cand in candidates:
+        left = deadline - loop.time()
+        if left <= 0.2:
+            break
+        url = (
+            "https://geocoding-api.open-meteo.com/v1/search"
+            f"?name={quote(cand)}&count=1&language=ru&format=json"
+        )
+        geo = await _get_json(url, min(left, 2.5))
+        results = (geo.get("results") if isinstance(geo, dict) else None) or []
+        if results:
+            try:
+                return (
+                    float(results[0]["latitude"]),
+                    float(results[0]["longitude"]),
+                    str(results[0].get("name") or place),
+                )
+            except (KeyError, TypeError, ValueError):
+                return None
+    return None
+
+
+async def _search_metno(
+    lat: float, lon: float, name: str, timeout: float
+) -> WebHit | None:
+    """Погода через met.no (YR) — без ключа и без блокировок в РФ.
+
+    open-meteo (forecast) местами недоступен (в РФ часто режется по IP),
+    поэтому основной источник прогноза — met.no, а open-meteo — запасной.
+    """
+    url = (
+        "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+        f"?lat={lat:.4f}&lon={lon:.4f}"
+    )
+    data = await _get_json(url, timeout, headers={"User-Agent": _WIKI_UA})
+    if not isinstance(data, dict):
+        return None
+    series = (data.get("properties") or {}).get("timeseries") or []
+    if not series:
+        return None
+    first = series[0] or {}
+    d = first.get("data") or {}
+    details = (d.get("instant") or {}).get("details") or {}
+    try:
+        temp = int(round(float(details.get("air_temperature"))))
+    except (TypeError, ValueError):
+        return None
+    wind = details.get("wind_speed")
+    symbol = str(
+        ((d.get("next_1_hours") or {}).get("summary") or {}).get("symbol_code")
+        or ""
+    )
+    base = re.sub(r"_(day|night|polartwilight)$", "", symbol)
+    base = re.sub(r"^(light|heavy)", "", base)
+    sky = _METNO_SKY.get(base, "облачно")
+    text = f"{name}: сейчас {sky}, {temp}°C"
+    if wind is not None:
+        try:
+            text += f", ветер {int(round(float(wind)))} м/с"
+        except (TypeError, ValueError):
+            pass
+    text += "."
+    return WebHit(text=text, source="weather")
+
+
+_METNO_SKY: dict[str, str] = {
+    "clearsky": "ясно",
+    "fair": "малооблачно",
+    "partlycloudy": "переменная облачность",
+    "cloudy": "облачно",
+    "fog": "туман",
+    "rain": "дождь",
+    "sleet": "мокрый снег",
+    "snow": "снег",
+    "rainshowers": "ливень",
+    "rainshowersandthunder": "гроза с ливнем",
+    "sleetshowers": "мокрый снег",
+    "snowshowers": "снегопад",
+    "rainandthunder": "гроза с дождём",
+    "sleetandthunder": "гроза с мокрым снегом",
+    "snowandthunder": "гроза со снегом",
+}
+
+
 async def _search_weather(query: str, timeout: float) -> WebHit | None:
     place = weather_place(query)
     lat = lon = None
     name = place
     key = place.lower()
+    loop = asyncio.get_running_loop()
+    started = loop.time()
     if key in _PLACE_COORDS:
         lat, lon, name = _PLACE_COORDS[key]
     elif key in _geo_cache:
         lat, lon, name = _geo_cache[key]
     else:
-        geo_url = (
-            "https://geocoding-api.open-meteo.com/v1/search"
-            f"?name={quote(place)}&count=1&language=ru&format=json"
-        )
-        geo = await _get_json(geo_url, min(timeout, 0.7))
-        if isinstance(geo, dict):
-            results = geo.get("results") or []
-            if results:
-                try:
-                    lat = float(results[0]["latitude"])
-                    lon = float(results[0]["longitude"])
-                    name = str(results[0].get("name") or place)
-                    _geo_cache[key] = (lat, lon, name)
-                except (KeyError, TypeError, ValueError):
-                    lat = lon = None
-        if lat is None or lon is None:
-            # не блокируем: Москва-фоллбэк сразу
-            lat, lon, name = _PLACE_COORDS["москва"]
+        # геокодингу — не больше половины бюджета (но хотя бы 0.6 с),
+        # чтобы прогнозу осталось время на второй запрос
+        geo_budget = min(4.0, max(1.5, timeout * 0.6))
+        found = await _geocode(place, geo_budget)
+        if found is None:
+            # город не найден/сеть не ответила — НЕ подменяем Москвой:
+            # лучше пустой ответ (уйдём в LLM), чем погода чужого города
+            return None
+        lat, lon, name = found
+        _geo_cache[key] = found
+
+    # основной источник — met.no; open-meteo пробуем, только если он не ответил
+    remaining = max(0.5, timeout - (loop.time() - started))
+    hit = await _search_metno(lat, lon, name, remaining)
+    if hit is not None:
+        return hit
 
     fc_url = (
         f"https://api.open-meteo.com/v1/forecast"
@@ -315,10 +421,8 @@ async def _search_weather(query: str, timeout: float) -> WebHit | None:
         f"&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m"
         f"&timezone=auto"
     )
-    # координаты уже известны → полный бюджет на forecast (без дробления)
-    fc_budget = timeout if key in _PLACE_COORDS or key in _geo_cache else max(
-        timeout * 0.6, 0.5
-    )
+    # координаты уже известны → остаток бюджета на forecast, но не меньше 0.5 с
+    fc_budget = max(0.5, timeout - (loop.time() - started))
     fc = await _get_json(fc_url, fc_budget)
     if not isinstance(fc, dict):
         return None

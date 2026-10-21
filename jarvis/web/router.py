@@ -207,13 +207,14 @@ class CommandRouter:
         # курс, факты) — и только если не вышло, открываем браузер (ТЗ §5) ---
         m = _SEARCH_RE.search(t)
         if m and (m.group(1) in ("найди", "загугли", "поиск", "погода", "погоду")):
-            query = (m.group(2) or "").strip() or m.group(1)
+            # ищем по исходной фразе: «Какая сейчас погода в Долгопрудном»
+            # целиком, а не по обрывку «в долгопрудном»
             answer = self._try_web_search(t, source)
             if answer:
                 return RouteResult(
                     reply=answer, action="web_search", source="search",
                 )
-            return self._search(query, source)
+            return self._search(t.strip(" .!؟…"), source)
 
         # --- 8. известные короткие ответы (правила — раньше LLM, ТЗ §2) ---
         quick = self._quick_reply(t, source)
@@ -282,27 +283,36 @@ class CommandRouter:
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             self._state.audit.add(source, "open_app", detail=exe)
+            log.info("router: open_app «%s» → %s (%s)", target, exe, source)
             return RouteResult(
                 reply=f"Запускаю «{target}».", action="open_app", source="rules",
             )
         except FileNotFoundError:
             self._state.audit.add(source, "open_app", ok=False, detail=exe)
+            log.warning("router: open_app «%s» — %s не найден", target, exe)
             return RouteResult(
                 reply=f"Не нашёл «{target}» на компьютере.",
                 action="open_app", source="rules",
             )
 
     def _search(self, query: str, source: str) -> RouteResult:
+        # в браузер уходит ИСХОДНАЯ фраза: из «погода в Долгопрудном»
+        # нельзя выдёргивать «в долгопрудном» — это мусорный запрос
         url = f"https://yandex.ru/search/?text={quote_plus(query)}"
         try:
+            self._state.bcast.push("status", {
+                "text": f"Открываю поиск: {query}", "kind": "browser",
+            })
             webbrowser.open(url)
             self._state.audit.add(source, "search", detail=query)
+            log.info("router: browser search «%s» (%s)", query, source)
             return RouteResult(
                 reply=f"Ищу «{query}» в браузере.",
                 action="search", source="rules",
             )
         except Exception as exc:
             self._state.audit.add(source, "search", ok=False, detail=str(exc))
+            log.warning("router: browser search «%s» упал: %s", query, exc)
             return RouteResult(
                 reply="Браузер не открылся.", action="search", source="rules",
             )
@@ -548,21 +558,28 @@ class CommandRouter:
             return ""
 
         result_box: list[str] = [""]
+        budget = float(os.environ.get("WEB_SEARCH_TIMEOUT", "6.0"))
+
+        self._state.bcast.push("status", {
+            "text": "Ищу в интернете…", "kind": "search",
+        })
 
         def _run() -> None:
             try:
-                answer = asyncio.run(maybe_web_search(text, timeout=1.8))
+                answer = asyncio.run(maybe_web_search(text, timeout=budget))
                 result_box[0] = answer or ""
             except Exception:
                 log.debug("web_search: сбой для %r", text, exc_info=True)
 
         t = threading.Thread(target=_run, name="web-search", daemon=True)
         t.start()
-        t.join(timeout=2.2)
+        t.join(timeout=budget + 1.0)
         answer = result_box[0]
         if answer:
             self._state.audit.add(source, "web_search", detail=text[:120])
             log.info("router: web_search → %s", answer[:100])
+        else:
+            log.info("router: web_search пусто для «%s»", text[:120])
         return answer
 
     def _fallback(self, text: str, source: str) -> RouteResult:

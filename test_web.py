@@ -206,6 +206,66 @@ def test_router_opens_known_app_match(router, monkeypatch):
     assert called["cmd"] == "notepad"
 
 
+def test_router_search_uses_full_phrase(router, monkeypatch):
+    """«погода в Долгопрудном» → в браузер уходит вся фраза.
+
+    Раньше из regex брался обрывок «в долгопрудном» — браузер открывался
+    с мусорным запросом и ответа не было.
+    """
+    from urllib.parse import unquote_plus
+
+    opened: list[str] = []
+    status: list = []
+    monkeypatch.setattr(
+        "jarvis.web.router.webbrowser.open", lambda url: opened.append(url)
+    )
+    monkeypatch.setattr(
+        router._state.bcast, "push", lambda *a, **k: status.append(a)
+    )
+    monkeypatch.setattr(router, "_try_web_search", lambda text, source: "")
+    res = router.handle("Какая сейчас погода в Долгопрудном", source="test")
+    assert res.action == "search"
+    assert len(opened) == 1
+    query = unquote_plus(opened[0].split("text=", 1)[1])
+    assert query == "Какая сейчас погода в Долгопрудном"
+    assert any(a and a[0] == "status" and a[1].get("kind") == "browser"
+               for a in status)
+
+
+def test_try_web_search_uses_env_budget(router, monkeypatch):
+    """Бюджет веб-поиска берётся из WEB_SEARCH_TIMEOUT, а не 1.8 с."""
+    seen: dict = {}
+
+    async def fake_maybe(query, *, timeout=None):
+        seen["timeout"] = timeout
+        return "ответ"
+
+    monkeypatch.setenv("WEB_SEARCH_TIMEOUT", "9")
+    monkeypatch.setattr(
+        "jarvis.voice.web_search.maybe_web_search", fake_maybe
+    )
+    assert router._try_web_search("погода", "test") == "ответ"
+    assert seen["timeout"] == 9.0
+
+
+def test_router_pushes_progress_status(router, monkeypatch):
+    """Перед поиском телефон получает событие «Ищу…» (прогресс в UI)."""
+    pushed: list = []
+    monkeypatch.setattr(
+        router._state.bcast, "push", lambda *a, **k: pushed.append(a)
+    )
+
+    async def fake_maybe(query, *, timeout=None):
+        return "готово"
+
+    monkeypatch.setattr(
+        "jarvis.voice.web_search.maybe_web_search", fake_maybe
+    )
+    assert router._try_web_search("погода в Москве", "test") == "готово"
+    status = [a for a in pushed if a and a[0] == "status"]
+    assert status and status[0][1].get("kind") == "search"
+
+
 def test_router_emergency_on_off(state, router):
     res = router.handle("экстренная остановка", source="test")
     assert res.action == "emergency"
